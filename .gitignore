@@ -15,7 +15,6 @@ var
 sdist
 develop-eggs
 .installed.cfg
-lib
 lib64
 
 # Installer logs
@@ -36,6 +35,10 @@ nosetests.xml
 
 # Cache folder
 __pycache__
+
+# Sublime Text files
+*.sublime-project
+*.sublime-workspace
 
 # Organica specific
 *.orl
