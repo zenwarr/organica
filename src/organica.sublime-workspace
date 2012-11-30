@@ -1,0 +1,291 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"norm",
+				"normpath  (function)"
+			],
+			[
+				"expand",
+				"expandvars  (function)"
+			],
+			[
+				"__tag",
+				"__tagFilter"
+			],
+			[
+				"mode",
+				"MODE_ANY_STRING"
+			],
+			[
+				"Objec",
+				"ObjectIdentity"
+			],
+			[
+				"TagClass",
+				"TagClassIdentity"
+			],
+			[
+				"VALUE_TYPE",
+				"VALUE_TYPE_LOCATOR"
+			],
+			[
+				"VALUE_TY",
+				"VALUE_TYPE_UNKNOWN"
+			],
+			[
+				"VALUE_",
+				"VALUE_TYPE_TEXT"
+			],
+			[
+				"VALUE_TYE",
+				"VALUE_TYPE_OBJECT_REFERENCE"
+			],
+			[
+				"phpino",
+				"phpinfo"
+			]
+		]
+	},
+	"buffers":
+	[
+		{
+			"file": "organica/lib/locator.py",
+			"settings":
+			{
+				"buffer_size": 954,
+				"line_ending": "Windows"
+			}
+		}
+	],
+	"build_system": "",
+	"command_palette":
+	{
+		"height": 81.0,
+		"selected_items":
+		[
+			[
+				"insta",
+				"Package Control: Install Package"
+			],
+			[
+				"inst",
+				"Package Control: Install Package"
+			],
+			[
+				"ins",
+				"Package Control: Install Package"
+			],
+			[
+				"Package Control: in",
+				"Package Control: Install Package"
+			]
+		],
+		"width": 536.0
+	},
+	"console":
+	{
+		"height": 174.0
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": true,
+		"show_open_files": false,
+		"show_tabs": true,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"file_history":
+	[
+		"/C/Develop/organica-python/src/organica/lib/locator.py",
+		"/C/Develop/organica-python/src/organica/lib/objects2.py",
+		"/C/Develop/organica-python/src/organica/application.py",
+		"/C/Develop/organica-python/src/organica/main.py",
+		"/C/Develop/organica-python/src/run.py",
+		"/C/Develop/organica-python/src/organica.sublime-project",
+		"/C/Develop/organica-python/src/organica.store",
+		"/C/Develop/organica-python/src/installation.mark",
+		"/C/Develop/organica-python/src/build.py",
+		"/C/Develop/organica-python/src/runtest.py",
+		"/C/Develop/organica-python/src/test.py",
+		"/C/Develop/organica-python/src/main.py",
+		"/C/Develop/organica-python/src/application.py",
+		"/C/Develop/organica-python/src/organica/installation.mark",
+		"/C/Develop/organica-python/src/organica/utils/singleton.py",
+		"/C/Develop/organica-python/src/organica/utils/settings.py",
+		"/C/Develop/organica-python/src/organica/utils/operations.py",
+		"/C/Develop/organica-python/src/organica/utils/lockablle.py",
+		"/C/Develop/organica-python/src/organica/utils/lockable.py",
+		"/C/comp/sublimetext/Data/Packages/User/Preferences.sublime-settings",
+		"/C/comp/sublimetext/Data/Packages/Default/Preferences.sublime-settings",
+		"/C/Develop/organica-python/src/organica/utils/helpers.py",
+		"/C/Develop/organica-python/src/organica/utils/constants.py",
+		"/C/Develop/organica-python/src/Utilites/helpers.py",
+		"/C/Develop/organica-python/src/Utilites/config.py",
+		"/C/Develop/organica-python/src/Library/filters.py",
+		"/C/Develop/organica-python/src/Library/locator.py",
+		"/C/Develop/organica-python/src/Library/objects.py",
+		"/C/Develop/organica-python/src/Library/Objects.py",
+		"/C/Develop/organica-python/src/Library/Locator.py",
+		"/C/Develop/organica-python/src/Library/Filters.py",
+		"/C/Develop/organica-python/src/Utilites/Logging.py",
+		"/C/Dev/organica/src/Organica/library/TagFilterImpl.cpp",
+		"/C/Dev/organica/src/Organica/library/TagFilterImpl.h",
+		"/C/Dev/organica/src/Organica/library/TagFilter.cpp",
+		"/C/Dev/organica/src/Organica/library/QueryString.h",
+		"/C/Dev/organica/src/Organica/library/QueryString.cpp",
+		"/C/Dev/organica/src/Organica/library/TagFilterExpression.h",
+		"/C/Dev/organica/src/Organica/library/Object.cpp",
+		"/C/Dev/organica/src/Organica/library/Object.h",
+		"/C/Dev/organica/src/Organica/library/TagValue.h",
+		"/C/Dev/organica/src/Organica/library/TagValue.cpp",
+		"/C/Dev/organica/src/Organica/library/TagClass.cpp",
+		"/C/Dev/organica/src/Organica/library/TagClass.h",
+		"/C/Dev/organica/src/Organica/library/Tag.h",
+		"/C/Dev/organica/src/Organica/library/Tag.cpp",
+		"/C/comp/sublimetext/Data/Packages/SublimeCodeIntel/Base File.sublime-settings",
+		"/C/Dev/organica/src/Organica/library/Identity.h",
+		"/C/Develop/organica-python/src/organica.sublime-workspace",
+		"/C/comp/xampp/htdocs/wordpress/wp-comments-post.php",
+		"/C/comp/xampp/htdocs/wordpress/wp-load.php",
+		"/C/comp/xampp/htdocs/phpl/index.php"
+	],
+	"find":
+	{
+		"height": 36.0
+	},
+	"find_in_files":
+	{
+		"height": 0.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+			"isManagedFile",
+			"os.name",
+			"isinstance",
+			"super",
+			"else if"
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+			"sys.platform",
+			"elif"
+		],
+		"reverse": false,
+		"show_context": true,
+		"use_buffer2": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"selected": 0,
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "organica/lib/locator.py",
+					"settings":
+					{
+						"buffer_size": 954,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								954,
+								954
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Python/Python.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 324.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 38.0
+	},
+	"input":
+	{
+		"height": 34.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.exec":
+	{
+		"height": 130.0
+	},
+	"replace":
+	{
+		"height": 66.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"show_minimap": false,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 250.0,
+	"status_bar_visible": true
+}
