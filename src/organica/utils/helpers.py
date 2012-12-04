@@ -40,3 +40,13 @@ def each(iterable, pred):
 			return False
 	else:
 		return True
+
+def __escape(text, need_escape):
+    escaped = ''
+    escaping = False
+    for c in text:
+        escaped.append('\\{0}'.format(c) if c in need_escape and not escaping else c)
+        escaping = not escaping and c == '\\'
+    return escaped
+
+

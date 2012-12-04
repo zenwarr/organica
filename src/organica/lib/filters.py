@@ -1,5 +1,28 @@
-from fnmatch import *
+import re
 from organica.lib.objects import *
+import organica.lib.helpers as helpers
+
+class Wildcard(object):
+	def __init__(self, pattern = '*'):
+		self.pattern = pattern
+
+	def isEqual(self, text):
+		if not self.pattern or len(self.pattern) == 0:
+			return False
+
+		# escape all regexp special chars except supported * and ?
+		pattern_re = helpers.escape(text, '[\\^$.|+()')
+		compiled = re.compile(pattern_re)
+		match = compiled.match(re_m, text)
+		return match and match.end == len(text) - 1
+
+	def __eq__(self, text):
+		if not isinstance(text, str):
+			raise NotImplementedError()
+		return self.isEqual(text)
+
+	def __ne__(self, text):
+		return not self.__eq__(text)
 
 class QueryString:
 	MODE_FIXED_STRING = 1,
