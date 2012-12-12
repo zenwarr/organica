@@ -1,0 +1,5 @@
+-- KNOWN ISSUES
+
+- Avoid creating hard or soft links for library file as it can lead to
+  SQLite problems when recovering after power fail or OS crash.
+  See http://sqlite.org/lockingv3.html#how_to_corrupt for details.

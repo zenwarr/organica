@@ -98,7 +98,7 @@ class LocalStorage(QObject):
 		return self.__config['path_template'] if 'path_template' in self.__config else ''
 
 	@pathTemplate.setter
-	def setPathTemplate(self, value):
+	def pathTemplate(self, value):
 		self.__config['path_template'] = value
 		self.__saveConfig()
 

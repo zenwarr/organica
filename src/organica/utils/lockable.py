@@ -1,7 +1,6 @@
 from threading import RLock
 
-class Lockable:
+class Lockable(object):
 	def __init__(self):
 		self.lock = RLock()
-
 

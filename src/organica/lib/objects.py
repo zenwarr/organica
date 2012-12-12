@@ -1,8 +1,16 @@
 from organica.lib.locator import Locator
 from organica.lib.formatstring import FormatString
+import organica.lib.filters
+import organica.utils.helpers as helpers
+
+def isCorrectIdent(name):
+    """
+    Checks if name can be used as tag class or meta name
+    """
+    return helpers.each(name, lambda x: x.isalnum() or x in '_')
 
 class ObjectError(Exception):
-	pass
+    pass
 
 class Identity(object):
     """
@@ -31,6 +39,8 @@ class Identity(object):
         return self.lib and self.id > 0
 
     def __eq__(self, other):
+        if not isinstance(other, Identity):
+            return NotImplemented
         return self.isValid and other.isValid and self.lib == other.lib \
                 and self.id == other.id
 
@@ -46,8 +56,8 @@ class TagValue(object):
                   or SQLite integer or real types.
         - LOCATOR: special type representing an URL. Mapped to Python Locator
                   type. Represented with TEXT in SQLite.
-        - OBJECT REFERENCE: an identifier of library object. Mapped to Object in Python
-                  and foreign key referencing table objects in SQLite database.
+        - OBJECT_REFERENCE: an identifier of library object. Mapped to Object in Python
+                  and integer referencing table objects in SQLite database.
         - NONE: an invalid value. Mapped to Python None and SQLite NULL. This type
                 is compatible with all other types and value of this type can be
                 assigned to tag with any type.
@@ -60,191 +70,178 @@ class TagValue(object):
     TYPE_LOCATOR = 3
     TYPE_OBJECT_REFERENCE = 4
 
-    def __init__(self, value, value_type = -1):
-        self.setValue(value, value_type)
+    @staticmethod
+    def _dec_object(tag_class, db_form):
+        if tag_class.lib.object(Identity(tag_class.lib, int(db_form))):
+            return Identity(tag_class.lib, int(db_form))
+        raise TypeError('invalid id {0} for object reference tag'.format(db_form))
+
+    @staticmethod
+    def isValueTypeCorrect(value_type):
+        """
+        Check if :value_type: can be used as type index. This check should be made
+        after index was get from user or database
+        """
+        return (0 <= value_type <= TagValue.TYPE_OBJECT_REFERENCE)
+
+    @staticmethod
+    def _checkValueTypeCorrect(value_type):
+        """
+        Raise exception if :value_type: is not correct
+        """
+        if not TagValue.isValueTypeCorrect(value_type):
+            raise ObjectError('invalid value type index')
+
+    _type_traits = {
+        # type_id: (name, prop_name, allowed_python_types, db_encoder, db_decoder)
+        TYPE_NONE: ('None', '', ('NoneType', ), None, None),
+        TYPE_TEXT: ('Text', 'text', ('str', ), None, None),
+        TYPE_NUMBER: ('Number', 'number', ('int', 'float'), None, None),
+        TYPE_LOCATOR: ('Locator', 'locator', (type(Locator).__name__, ), (lambda l: l.databaseForm()),
+                       (lambda c, d: Locator(d))),
+        TYPE_OBJECT_REFERENCE: ('Object reference', 'objectReference', (type(Identity).__name__, ),
+                                (lambda obj: obj.id), _dec_object)
+    }
+
+    def __init__(self, value = None, value_type = -1):
+        if isinstance(value, TagValue):
+            self.setValue(value.value, value.valueType)
+        else:
+            self.setValue(value, value_type)
 
     def setValue(self, value, value_type = -1):
-    	"""
-    	value_type = -1 means autodetecting type
-    	"""
-        if value_type == self.TYPE_NONE:
-            if value:
-                raise TypeError('invalid value for TagValue: None expected')
-            self.value = None
-        elif value_type == self.TYPE_TEXT:
-            if not isinstance(value, str):
-                raise TypeError('invalid value for TagValue: str expected')
-            self.value = value
-        elif value_type == self.TYPE_NUMBER:
-            if not isinstance(value, int) and not isinstance(value, float):
-                raise TypeError('invalid value for TagValue: int or float expected')
-            self.value = value
-        elif value_type == self.TYPE_LOCATOR):
-            if not isinstance(value, Locator) and not isinstance(value, str):
-                raise TypeError('invalid value for TagValue: Locator or str expected')
-            if isinstance(value, str):
-                self.value = Locator(value)
-            else:
+        """
+        :value_type: = -1 means autodetecting type
+        """
+        if value_type != -1:
+            self._checkValueTypeCorrect(value_type)
+            traits = self._type_traits[value_type]
+            if type(value).__name__ not in traits[2]:
+                expected = ' or '.join(traits[2])
+                raise TypeError('invalid value type for {0} ({1}) - {2} expected'
+                        .format(value_type, self.typeString(value_type), expected))
+
+            if value_type != self.TYPE_NONE:
                 self.value = value
-        elif value_type == self.TYPE_OBJECT_REFERENCE:
-            if not isinstance(value, Object):
-                raise TypeError('invalid value for TagValue: Object expected')
-            self.value = value
-        elif value_type == -1:
-            # autodetect type
-            type_map = {
-                type(str): self.TYPE_TEXT,
-                type(int): self.TYPE_NUMBER,
-                type(float): self.TYPE_NUMBER,
-                type(Locator): self.TYPE_LOCATOR:
-                type(Object): self.TYPE_OBJECT_REFERENCE:
-                type(None): self.TYPE_NONE
-            }
-            if type(value) not in type_map:
-                raise TypeError('invalid value for TagValue')
+                self.valueType = value_type
             else:
-                self.setValue(value, type_map[type(value)])
+                self.setNone()
         else:
-            raise TypeError('invalid value type for TagValue')
+            valueType = self.getValueTypeForType(type(value))
+            if valueType >= 0:
+                self.setValue(value, valueType)
+            else:
+                raise TypeError('invalid value type for TagValue ({0})'.format(type(value).__name__))
 
-    @property
-    def text(self):
-        return self.value if self.valueType == TYPE_TEXT else None
+    def __getattr__(self, name):
+        if not name: raise AttributeError()
 
-    @text.setter
-    def setText(self, value):
-        self.setValue(value, self.TYPE_TEXT)
+        for vt in self._type_traits.keys():
+            traits = self._type_traits[vt]
+            if name == traits[1]:
+                return self.value if self.valueType == vt else None
+        else:
+            raise AttributeError()
 
-    @property
-    def number(self):
-        return self.value if self.valueType == TYPE_NUMBER else None
+    def __setattr__(self, name, value):
+        if not name: raise AttributeError()
 
-    @number.setter
-    def setNumber(self, value):
-        self.setValue(value, self.TYPE_NUMBER)
-
-    @property
-    def objectReference(self):
-        return self.value if self.valueType == TYPE_OBJECT_REFERENCE else None
-
-    @objectReference.setter
-    def setObjectReference(self, value):
-        self.setValue(value, self.TYPE_OBJECT_REFERENCE)
-
-    @property
-    def locator(self):
-        return self.value if self.valueType == TYPE_LOCATOR else None
-
-    @locator.setter
-    def setLocator(self, value):
-        self.setValue(value, self.TYPE_LOCATOR)
+        for vt in self._type_traits.keys():
+            traits = self._type_traits[vt]
+            if name == traits[1]:
+                self.setValue(value, vt)
+        else:
+            return object.__setattr__(self, name, value)
 
     @property
     def isNone(self):
-        return self.valueType == TYPE_NONE
+        return self.valueType == self.TYPE_NONE
 
     def setNone(self):
-    	self.valueType = TYPE_NONE
-    	self.value = None
+        self.valueType = self.TYPE_NONE
+        self.value = None
 
     def databaseForm(self):
         """
         Returns value that can be stored in SQLite database.
         """
-        if self.valueType == self.TYPE_TEXT or self.valueType == self.TYPE_NUMBER:
-            return self.value
-        elif self.valueType == self.TYPE_LOCATOR:
-            return self.value.url()
-        elif self.valueType == self.TYPE_OBJECT_REFERENCE:
-            return '#{0}'.format(self.value.id)
-        else:
-            return None
+        self._checkValueTypeCorrect(self.valueType)
+        traits = self._type_traits[self.valueType]
+        return traits[3](self.value) if traits[3] else self.value
 
     def printable(self):
-    	s = str(self.databaseForm())
-    	if len(s) > 50:
-    		s = s[:47] + '...'
-    	return s
+        """
+        Printable (but not precise) form that can be used in error messages or something like it
+        """
+        s = str(self.databaseForm())
+        if len(s) > 50:
+            s = s[:47] + '...'
+        return s
 
     @staticmethod
     def fromDatabaseForm(cTagClass, dbForm):
         """
         Returns TagValue object from object stored in database.
         """
-        result = TagValue()
-        if cTagClass.valueType == self.TYPE_TEXT:
-            # database form should be text
-            if not isinstance(str, dbForm):
-                raise TypeError('string expected for text tag')
-            else:
-                result.text = dbForm
-        elif cTagClass.valueType == self.TYPE_NUMBER:
-            if not isinstance(int, dbForm) and not isinstance(float, dbForm):
-                raise TypeError('number expected for number tag')
-            else:
-                result.number = dbForm
-        elif cTagClass.valueType == self.TYPE_OBJECT_REFERENCE:
-            if not isinstance(str, dbForm):
-                raise TypeError('string expected for object reference')
-            elif not dbForm.startswith('#'):
-                raise TypeError('bad format for object reference')
-            else:
-                objectId = int(val[1:])
-                libObject = cTagClass.lib.object(objectId)
-                if libObject is None:
-                    raise TypeError('invalid id #{0} for TYPE_OBJECT_REFERENCE tag' \
-                                .format(objectId))
-                else:
-                    result.objectReference = libObject
-        elif cTagClass.valueType == TYPE_LOCATOR:
-            if not isinstance(str, dbForm):
-                raise TypeError('string expected for locator')
-            result.locator = Locator(dbForm)
-        elif cTagClass.valueType == self.TYPE_NONE:
-        	result.setNone()
+        self._checkValueTypeCorrect(cTagClass.valueType)
+        traits = self._type_traits[cTagClass.valueType]
+        dbForm = traits[4](cTagClass, dbForm) if traits[4] else dbForm
+        if type(dbForm).__name__ not in traits[2]:
+            raise TypeError('{0} expected for {1}, got {2}'.format(
+                            ' or '.join(traits[2])), traits[0], type(dbForm).__name__)
+        return TagValue(dbForm, cTagClass.valueType)
+
+    @staticmethod
+    def getValueTypeForType(type_object):
+        """
+        Get value type index from Python type
+        """
+        for vt in TagValue._type_traits.keys():
+            traits = TagValue._type_traits[vt]
+            if type_object.__name__ in traits[2]:
+                return vt
         else:
-            raise TypeError('unknown type for tag class {1}'.format(cTagClass.name))
-        return result
+            return -1
 
     def __eq__(self, other):
-        if self.typeIndex != other.typeIndex:
+        if not isinstance(other, TagValue) or TagValue.getValueTypeForType(type(other)) == -1:
+            return NotImplemented
+
+        # try to convert value to TagValue (it means we can compare TagValue and, for example, strings)
+        other = TagValue(other)
+
+        if self.valueType != other.valueType or not TagValue.isValueTypeCorrect(self.valueType):
             return False
 
-        if self.typeIndex == self.TYPE_TEXT:
-            return self.text == other.text
-        elif self.typeIndex == self.TYPE_NUMBER:
-            return self.number == other.number
-        elif self.typeIndex == self.TYPE_OBJECT_REFERENCE:
-            return self.objectReference == other.objectReference
-        elif self.typeIndex == self.TYPE_LOCATOR:
-            return self.locator == other.locator
-        else:
-            # NONE type values are never equal
-            return False
+        # None values are never equal
+        if self.valueType == self.TYPE_NONE: return False
+
+        traits = self._type_traits[self.valueType]
+        return getattr(self, traits[1]) == getattr(other, traits[1])
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
     @staticmethod
-    def typeString(typeIndex):
-        typeMap = {TagValue.TYPE_NONE: 'None',
-                   TagValue.TYPE_TEXT: 'Text',
-                   TagValue.TYPE_NUMBER: 'Number',
-                   TagValue.TYPE_OBJECT_REFERENCE: 'Object reference',
-                   TagValue.TYPE_LOCATOR: 'Locator'}
-        return typeMap[typeIndex] if typeMap.contains(typeIndex) else 'Unknown'
+    def typeString(valueType):
+        """
+        Human-readable name for value type
+        """
+        self._checkValueTypeCorrect(valueType)
+        traits = TagValue._type_traits[valueType]
+        return traits[0]
 
 class LibraryObject(object):
     def __init__(self, identity = None):
         super().__init__()
-        self.__identity = identity if identity else Identity()
+        self.__identity = identity or Identity()
 
     @property
     def identity(self):
         return self.__identity
 
     @identity.setter
-    def setIdentity(self, value):
+    def identity(self, value):
         self.__identity = value
 
     @property
@@ -259,11 +256,14 @@ class LibraryObject(object):
     def isValid(self):
         return self.identity.isValid
 
+    def validate(self):
+        return True
+
 class TagClass(LibraryObject):
     def __init__(self, name = '', value_type = TagValue.TYPE_TEXT, hidden = False):
         super().__init__()
         self.name = name
-        self.valueType = valueType
+        self.valueType = value_type
         self.hidden = hidden
 
     def flush(self):
@@ -277,6 +277,8 @@ class TagClass(LibraryObject):
                 self.hidden == other.hidden and self.valueType == other.valueType
 
     def __eq__(self, other):
+        if not isinstance(other, TagClass): return NotImplemented
+
         if not self.isValid and not other.isValid:
             return self.__m_eq(other)
         else:
@@ -284,6 +286,9 @@ class TagClass(LibraryObject):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def validate(self):
+        return isCorrectIdent(self.name) and (0 <= self.valueType < TagValue.TYPE_MAXIMAL)
 
 class Tag(LibraryObject):
     """
@@ -304,29 +309,36 @@ class Tag(LibraryObject):
     def __init__(self, tag_class = None, tag_value = None):
         super().__init__()
         self.value = tag_value if tag_value else TagValue()
-        self.tagClass = tag_class
+
+        if isinstance(tag_class, TagClass):
+            self.className = tag_class.name
+        elif isinstance(tag_class, Identity):
+            tc = tag_class.lib.tagClass(tag_class)
+            self.className = tc.name if tc else ''
+        else:
+            self.className = tag_class
 
     @property
     def tagClass(self):
         return self.lib.tagClass(self.className) if self.lib else None
 
     @tagClass.setter
-    def setTagClass(self, tag_class):
+    def tagClass(self, tag_class):
         self.className = tag_class.name if isinstance(tag_class, TagClass) else tag_class
 
     def passes(self, tag_filter):
-    	if not tag_filter:
-    		return self.isValid
-    	elif isinstance(tag_filter, Tag):
-    		tag_filter = TagFilter.tag(tag_filter)
-    	elif isinstance(tag_filter, Identity):
-    		tag_filter = TagFilter.tagIdentity(tag_filter)
-    	return tag_filter.passes(self)
+        if not tag_filter:
+            return self.isValid
+        elif isinstance(tag_filter, Tag) or isinstance(tag_filter, Identity):
+            tag_filter = filters.TagFilter().tag(tag_filter)
+        return tag_filter.passes(self)
 
     def __m_eq(self, other):
-    	return self.className == other.className and self.value == other.value
+        return self.className == other.className and self.value == other.value
 
     def __eq__(self, other):
+        if not isinstance(other, Tag): return NotImplemented
+
         if not self.isValid and not other.isValid:
             return self.__m_eq(other)
         else:
@@ -341,6 +353,10 @@ class Tag(LibraryObject):
     def remove(self):
         if self.lib: self.lib.remove(self)
 
+    def validate(self):
+        return isCorrectIdent(self.className) and \
+                (0 <= self.value.valueType < TagValue.TYPE_MAXIMAL)
+
 class Object(LibraryObject):
     def __init__(self, display_name = '', tags = None):
         super().__init__()
@@ -353,34 +369,33 @@ class Object(LibraryObject):
 
     @property
     def displayName(self):
-        return FormatString(self.displayNameTemplate).format(self, FormatString.FCONTEXT_DISPLAY_NAME)
+        return FormatString(self.displayNameTemplate).format(self)
 
     @property
     def allTags(self):
-        self.__ensureTagsFetched()
+        self.ensureTagsFetched()
         return self.__allTags
 
-    @allTags.setter
     def setAllTags(self, value):
         self.__tagsFetched = True
         self.__allTags = value
 
     def tags(self, tag_filter = None):
-        self.__ensureTagsFetched()
+        self.ensureTagsFetched()
         return [t for t in self.__allTags if t.passes(tag_filter)]
 
     def testTag(self, tag_filter):
-        self.__ensureTagsFetched
+        self.ensureTagsFetched
         return contains(self.__allTags, lambda t: not t.passes(tag_filter))
 
     def passes(self, obj_filter):
-    	if obj_filter is None:
-    		return self.isValid
-    	elif isinstance(obj_filter, Object):
-    		obj_filter = ObjectFilter.object(obj_filter)
-    	elif isinstance(obj_filter, Identity):
-    		obj_filter = ObjectFilter.objectIdentity(obj_filter)
-    	return obj_filter.passes(self)
+        if obj_filter is None:
+            return self.isValid
+        elif isinstance(obj_filter, Object):
+            obj_filter = ObjectFilter.object(obj_filter)
+        elif isinstance(obj_filter, Identity):
+            obj_filter = ObjectFilter.objectIdentity(obj_filter)
+        return obj_filter.passes(self)
 
     @staticmethod
     def commonTags(objectList):
@@ -390,9 +405,7 @@ class Object(LibraryObject):
             return objectList[0].allTags
 
         def check_t(tag, object):
-            return object.testTag( \
-                    TagFilter.whereClass(tag.tagClass.name) and \
-                    TagFilter.whereValue(tag.value))
+            return object.testTag(TagFilter().tagClass(tag.tagClass.name).value(tag.value))
 
         result = objectList[0].allTags
         for obj in objectList[1:]:
@@ -400,25 +413,24 @@ class Object(LibraryObject):
         return result
 
     def linkTag(self, tag):
-    	if not self.testTag(TagFilter.tagClass(tag.tagClass) and \
-    	                    TagFilter.value(tag.value)):
-    		self.__allTags.append(tag)
-    	else:
-    		raise ObjectError('tag {0}:{1} already linked to object'.format(tag.name, tag.value.printable()))
+        if not self.testTag(TagFilter().tagClass(tag.tagClass).value(tag.value)):
+            self.__allTags.append(tag)
+        else:
+            raise ObjectError('tag {0}:{1} already linked to object'.format(tag.name, tag.value.printable()))
 
     def linkNewTag(self, tag_class, tag_value):
-    	self.linkTag(Tag(tag_class, tag_value))
+        self.linkTag(Tag(tag_class, tag_value))
 
     def link(self, *args):
-    	if len(args) == 1:
-    		self.linkTag(args[0])
-    	elif len(args) == 2:
-    		self.linkNewTag(args[0], args[1])
-    	else:
-    		raise TypeError('Object.link() takes 1 or 2 arguments, but {0} given'.format(len(args)))
+        if len(args) == 1:
+            self.linkTag(args[0])
+        elif len(args) == 2:
+            self.linkNewTag(args[0], args[1])
+        else:
+            raise TypeError('Object.link() takes 1 or 2 arguments, but {0} given'.format(len(args)))
 
     def unlink(self, tag_filter):
-        self.__ensureTagsFetched()
+        self.ensureTagsFetched()
         if tag not in self.__allTags:
             raise ObjectError('tag is not linked')
         self.__allTags.remove(tag)
@@ -434,6 +446,8 @@ class Object(LibraryObject):
                 and self.allTags == other.allTags
 
     def __eq__(self, other):
+        if not isinstance(other, Object): return NotImplemented
+
         if not self.isValid and not other.isValid:
             return self.__m_eq(other)
         else:
@@ -442,7 +456,14 @@ class Object(LibraryObject):
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def __ensureTagsFetched(self):
+    def ensureTagsFetched(self):
         if self.isValid and not self.__tagsFetched:
             self.allTags = self.lib.objectTags(self)
         self.__tagsFetched = True
+
+    def updateTag(self, tag):
+        if self.__tagsFetched:
+            for i in range(len(self.__allTags)):
+                if self.__allTags[i].identity == tag.identity:
+                    self.__allTags[i] = tag
+                    break

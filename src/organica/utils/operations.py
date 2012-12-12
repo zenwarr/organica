@@ -211,7 +211,7 @@ class Operation(QObject, Lockable):
 			return self.__state
 
 	@state.setter
-	def setState(self, newState):
+	def state(self, newState):
 		with self.lock:
 			self.__state = newState
 
@@ -226,7 +226,7 @@ class Operation(QObject, Lockable):
 			return self.__requestDoWork
 
 	@requestDoWork.setter
-	def setRequestDoWork(self, value):
+	def requestDoWork(self, value):
 		with self.lock:
 			self.__requestDoWork = value
 
