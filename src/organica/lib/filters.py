@@ -1,38 +1,48 @@
-import re, operator
-from organica.lib.objects import Object, Tag, TagClass, TagValue
+import re, operator, copy
+from organica.lib.objects import Object, Tag, TagClass, TagValue, Identity, get_identity
 import organica.utils.helpers as helpers
 
 class Wildcard(object):
     def __init__(self, pattern = ''):
-        if isinstance(pattern, Wildcard):
-            self.pattern = pattern.pattern
-        elif isinstance(pattern, str):
-            self.pattern = pattern
-        else:
-            raise ArgumentError('pattern')
+        self.pattern = pattern if not isinstance(pattern, Wildcard) else pattern.pattern
 
     def isEqual(self, text):
-        if not self.pattern or len(self.pattern) == 0:
-            return not text
+        # empty pattern matches empty string
+        if not self.pattern: return not text
 
+        if not text: return False
+
+        # generate regular expression we can use
         # escape all regexp special chars except supported * and ?
         pattern_re = helpers.escape(self.pattern, '[\\^$.|+()') + '$'
+        # and translate wildcard special chars to regexp
         pattern_re = pattern_re.replace('*', '.*').replace('?', '.?')
-        return bool(re.compile(pattern_re).match(text))
+        return bool(re.compile(pattern_re, re.IGNORECASE).match(text))
 
     def __eq__(self, text):
-        if not isinstance(text, str):
+        # comparing with ordinary str will cause matching wildcard;
+        # comparing with another wildcard will cause comparing patterns.
+        # note that it compares patterns as strings, but two patterns can
+        # have same meaning but different representations.
+        if isinstance(text, Wildcard):
+            return self.pattern.casefold() == text.pattern.casefold()
+        elif isinstance(text, str):
+            return self.isEqual(text)
+        else:
             return NotImplemented
-        return self.isEqual(text)
 
     def __ne__(self, text):
         return not self.__eq__(text)
 
 def _sqlEqualForm(text):
     """
-    Doubles each single quote
+    Doubles each single quote. Use it to sanitize strings which will be passed
+    into query in constucts like this: row = 'some_text'
     """
-    return [(x if x != "\'" else "''") for x in text]
+    r = ''
+    for x in text:
+        r = r + (x if x != "\'" else "''")
+    return r
 
 def _sqlLikeForm(text):
     """
@@ -71,17 +81,21 @@ def _sqlLikeForm(text):
     return result
 
 def generateSqlCompare(row_name, template):
+    """
+    Generate sql equal or LIKE comparision depending on type of template.
+    If template is None, comparision will be TRUE only on empty strings or NULLs.
+    """
     if not template:
-        return "({0} = '' or {0} is null)".format(row_name)
-    elif isinstance(template, str):
-        return "{0} = '{1}'".format(row_name, _sqlEqualForm(template))
+        return "{0} = '' or {0} is null".format(row_name)
     elif isinstance(template, Wildcard):
-        return "{0} like {1} escape '!'".format(row_name, _sqlLikeForm(template))
+        return "{0} like '{1}' escape '!'".format(row_name, _sqlLikeForm(template.pattern))
     else:
-        raise TypeError()
-
+        return "{0} = '{1}'".format(row_name, _sqlEqualForm(template))
 
 class _Filter_Disabled(object):
+    """
+    Disabled filter passes all tags.
+    """
     def isPasses(self, tag):
         return bool(tag)
 
@@ -89,6 +103,9 @@ class _Filter_Disabled(object):
         return '1 = 1'
 
 class _Filter_Block(object):
+    """
+    Blocked filter passes no tags
+    """
     def isPasses(self, obj):
         return False
 
@@ -96,6 +113,10 @@ class _Filter_Block(object):
         return '1 = 2'
 
 class _Filter_And(object):
+    """
+    This filter is TRUE only when :left: and :right: filters are TRUE. If one
+    of these filters is None, it considered to be disabled (always TRUE).
+    """
     def __init__(self, left, right):
         self.__left = left
         self.__right = right
@@ -111,7 +132,7 @@ class _Filter_And(object):
 
     def generateSql(self):
         if self.__left and self.__right:
-            return '(({0}) and ({1}))'.format(self.__left.generateSql(),
+            return '({0}) and ({1})'.format(self.__left.generateSql(),
                                               self.__right.generateSql())
         elif not self.__left and not self.__right:
             return _Filter_Disabled().generateSql()
@@ -119,6 +140,10 @@ class _Filter_And(object):
             return (self.__left if self.__left else self.__right).generateSql()
 
 class _Filter_Or(object):
+    """
+    This filter is TRUE if at least one of :left: and :right: filters is TRUE.
+    If one of these filters is None, it considered to be TRUE
+    """
     def __init__(self, left, right):
         self.__left = left
         self.__right = right
@@ -132,12 +157,15 @@ class _Filter_Or(object):
 
     def generateSql(self):
         if self.__left and self.__right:
-            return '(({0}) or ({1}))'.format(self.__left.generateSql(),
+            return '({0}) or ({1})'.format(self.__left.generateSql(),
                                              self.__right.generateSql())
         else:
             return _Filter_Disabled().generateSql()
 
 class _Filter_Not(object):
+    """
+    Inverts value of another filter. If constucted with None filter, returns False
+    """
     def __init__(self, expr):
         self.__expr = expr
 
@@ -150,59 +178,57 @@ class _Filter_Not(object):
         return 'not ({0})'.format(self.__expr.generateSql())
 
 class _Filter(object):
+    """
+    Base class for TagFilter and ObjectFilter classes.
+    """
     def __init__(self):
-        self.__atom = None
+        self.atom = None
         self.__limit = self.__offset = 0
 
-    @staticmethod
-    def create(atom):
-        f = TagFilter()
-        f.__atom = atom
-        return f
-
     def isPasses(self, obj):
-        return obj if not self.__atom else self.__atom.isPasses(obj)
+        return bool(obj) if not self.atom else self.atom.isPasses(obj)
 
     def generateSqlWhere(self):
-        if not self.__atom:
-            raise TypeError()
-        q = self.__atom.generateSql()
-        if self.__limit: q.append(' limit ' + str(self.__limit))
-        if self.__offset: q.append(' offset ' + str(self.__offset))
+        if not self.atom:
+            q = _Filter_Disabled().generateSql()
+        else:
+            q = self.atom.generateSql()
+        if self.__limit: q = q + ' limit ' + str(self.__limit)
+        if self.__offset: q = q + ' offset ' + str(self.__offset)
         return q
 
     def __and__(self, other):
         # true and true = true
-        if not self.__atom and not other.__atom:
-            return TagFilter()
+        if not self.atom and not other.atom:
+            return self.create()
         else:
-            return self.create(_Filter_And(self.__atom, other.__atom))
+            return self.create(_Filter_And(self.atom, other.atom))
 
     def __or__(self, other):
         # true or x = true
-        if not self.__atom or not other.__atom:
-            return TagFilter()
+        if not self.atom or not other.atom:
+            return self.create()
         else:
-            return self.create(_Filter_Or(self.__atom, other.__atom))
+            return self.create(_Filter_Or(self.atom, other.atom))
 
-    def __not__(self):
+    def __invert__(self):
         # not true = false
-        if not self.__atom:
+        if not self.atom:
             return self.create(_Filter_Block())
         else:
-            return self.create(_Filter_Not(self.__atom))
+            return self.create(_Filter_Not(self.atom))
 
     def block(self):
         # x and false = false
         return self.create(_Filter_Block())
 
     def limit(self, limit_value):
-        f = self
+        f = copy.copy(self)
         f.__limit = limit_value
         return f
 
     def offset(self, offset_value):
-        f = self
+        f = copy.copy(self)
         f.__offset = offset_value
         return f
 
@@ -213,16 +239,30 @@ class TagFilter(_Filter):
     Call to type creates filter that passes all tags.
     """
 
+    @staticmethod
+    def create(atom = None):
+        f = TagFilter()
+        f.atom = atom
+        return f
+
     def tagClass(self, tag_class):
         """
         Receives tag identity or tag class or class name (str or Wildcard)
         """
         return self & self.create(_Tag_Class(tag_class))
 
-    def tag(self, identity):
+    def identity(self, identity):
+        """
+        Matches only by identity. To match class and value use construct like this:
+        TagFilter().tagClass().value()
+        """
         return self & self.create(_Tag_Identity(identity))
 
     def number(self, number, op = '='):
+        """
+        Matches tags which have numeric value and which number comparision result using
+        given operator with given value is true.
+        """
         return self & self.create(_Tag_Number(number, op))
 
     def text(self, text):
@@ -238,21 +278,37 @@ class TagFilter(_Filter):
         return self & self.create(_Tag_Object(object_reference))
 
     def none(self):
+        """
+        Match tags with value type = None
+        """
         return self & self.create(_Tag_NoneValue())
 
     def valueType(self, value_type):
         return self & self.create(_Tag_ValueType(value_type))
 
     def unused(self):
+        """
+        Match tags not linked to any object. This filter has meaning only for flushed tags,
+        and will not pass ones for which isValid == False
+        """
         return self & self.create(_Tag_Unused())
 
     def value(self, value):
         return self & self.create(_Tag_Value(value))
 
     def linkedWith(self, object):
+        """
+        Matches tags that are linked with specified object. Note that actual object value (to comparision moment)
+        is used (to avoid differences between in-memory checks and database queries). Filter will become
+        blocked if constructed with unflushed object.
+        """
         return self & self.create(_Tag_LinkedWith(object))
 
 class _Tag_Class(object):
+    """
+    Matches tags with given class. Class can be specified with name or identity.
+    Wildcard can be used to match class name.
+    """
     def __init__(self, tag_class):
         self.__tagClass = tag_class
 
@@ -260,50 +316,72 @@ class _Tag_Class(object):
         if not tag or not tag.className:
             return False
 
-        if isinstance(self.__tagClass, TagClass):
-            return tag.tagClass == self.__tagClass
-        elif isinstance(self.__tagClass, Identity):
-            return tag.tagClass and tag.tagClass.identity() == self.__tagClass
-        elif isinstance(self.__tagClass, str) or isinstance(self.__tagClass, Wildcard):
+        if isinstance(self.__tagClass, Identity) or isinstance(self.__tagClass, TagClass):
+            ident = get_identity(self.__tagClass)
+            if not ident.isValid:
+                if isinstance(self.__tagClass, TagClass):
+                    # if we have filter basing on unflushed TagClass we will pass
+                    # tag without flushed class and name equal to specified class name
+                    return not tag.tagClass and tag.className.casefold() == \
+                           self.__tagClass.name.casefold()
+                else:
+                    # filter is based on invalid Identity. We cannot do anything.
+                    return False
+            else:
+                # orginary compare. Tag' class should be flushed.
+                return tag.tagClass and tag.tagClass.identity == \
+                       get_identity(self.__tagClass)
+        elif isinstance(self.__tagClass, Wildcard):
             return self.__tagClass == tag.className
         else:
-            raise TypeError()
+            return self.__tagClass and tag.className.casefold() == self.__tagClass.casefold()
 
     def generateSql(self):
         if isinstance(self.__tagClass, Identity) or isinstance(self.__tagClass, TagClass):
-            return "class_id = {0}".format(self.__tagClass.id)
+            ident = get_identity(self.__tagClass)
+            if not ident.isValid:
+                if isinstance(self.__tagClass, TagClass) and self.__tagClass.name:
+                    return _Tag_Class(self.__tagClass.name).generateSql()
+                else:
+                    return _Filter_Block().generateSql()
+            else:
+                return "class_id = {0}".format(self.__tagClass.id)
         elif isinstance(self.__tagClass, str) or isinstance(self.__tagClass, Wildcard):
-            return "class_id in (select id from tag_classes where {0}" \
-                             .format(generateSqlCompare('name', self.__classNameMask))
-        else:
-            raise TypeError()
+            if self.__tagClass:
+                return "class_id in (select id from tag_classes where {0})" \
+                       .format(generateSqlCompare('name', self.__tagClass))
+        return _Tag_Block().generateSql()
 
 class _Tag_Identity(object):
+    """
+    Matches tag with given identity
+    """
     def __init__(self, identity):
         self.__identity = identity
 
     def isPasses(self, tag):
-        if not tag: return False
-        if isinstance(self.__identity, Tag):
-            return self.__identity.identity == tag.identity
-        elif isinstance(self.__identity, Identity):
-            return self.__identity == tag.identity
-        else:
-            raise TypeError()
+        return tag and tag.identity == get_identity(self.__identity)
 
     def generateSql(self):
-        return "id = {0}".format(self.__identity.id)
+        if self.__identity.isValid:
+            return "id = {0}".format(self.__identity.id)
+        else:
+            return _Filter_Block().generateSql()
 
 class _Tag_Text(object):
     def __init__(self, text):
         self.__text = text
 
     def isPasses(self, tag):
-        return tag and self.__text == tag.value.text
+        if not tag: return False
+        if isinstance(self.__text, Wildcard):
+            return self.__text.isEqual(tag.value.text)
+        else:
+            return self.__text.casefold() == tag.value.text.casefold()
 
     def generateSql(self):
-        return '(value_type = {0} and {1})'.format(TagValue.TYPE_TEXT,
-                                                  generateSqlCompare('value', self.text))
+        return 'value_type = {0} and {1} collate strict_nocase'.format(TagValue.TYPE_TEXT,
+                                                                       generateSqlCompare('value', self.__text))
 
 class _Tag_Number(object):
     func_map = {
@@ -324,12 +402,11 @@ class _Tag_Number(object):
 
     def isPasses(self, tag):
         return tag and tag.value.valueType == TagValue.TYPE_NUMBER and \
-                self.func_map[self.__op](self.__number, tag.value.number)
+               self.func_map[self.__op](tag.value.number, self.__number)
 
     def generateSql(self):
-        return "(value_type = {3} and {0} {1} {2})".format('value', self.__op,
-                                                             self.__number,
-                                                             TagValue.TYPE_NUMBER)
+        return "value_type = {0} and value {1} {2}".format(TagValue.TYPE_NUMBER,
+                                                           self.__op, self.__number)
 
 class _Tag_Locator(object):
     def __init__(self, locator):
@@ -339,8 +416,8 @@ class _Tag_Locator(object):
         return tag and tag.value.locator == self.__locator
 
     def generateSql(self):
-        return "(value_type = {0} and value = '{1}')".format(TagValue.TYPE_LOCATOR, \
-                     self.__locator.databaseForm())
+        return "value_type = {0} and value = '{1}'".format(TagValue.TYPE_LOCATOR, \
+                                                           self.__locator.databaseForm())
 
 class _Tag_Object(object):
     def __init__(self, objectReference):
@@ -350,8 +427,11 @@ class _Tag_Object(object):
         return tag and tag.value.objectReference == self.__objectReference
 
     def generateSql(self):
-        return '(value_type = {0} and value = {1})'.format(TagValue.OBJECT_REFERENCE, \
-                    self.__objectReference.id)
+        if self.__objectReference.isValid:
+            return 'value_type = {0} and value = {1}'.format(TagValue.TYPE_OBJECT_REFERENCE, \
+                                                             self.__objectReference.id)
+        else:
+            return _Filter_Block().generateSql()
 
 class _Tag_ValueType(object):
     def __init__(self, valueType):
@@ -369,7 +449,7 @@ class _Tag_NoneValue(_Tag_ValueType):
 
 class _Tag_Value(object):
     def __init__(self, value):
-        self.__value = value
+        self.__value = TagValue(value)
 
     def isPasses(self, tag):
         return tag and tag.value == self.__value
@@ -391,7 +471,7 @@ class _Tag_Value(object):
 class _Tag_Unused(object):
     def isPasses(self, tag):
         if not tag or not tag.isValid: return False
-        return tag.lib.objects(ObjectFilter().tag(tag).limit(1))
+        return not tag.lib.objects(ObjectFilter().tags(tag).limit(1))
 
     def generateSql(self):
         return 'id not in (select distinct tag_id from links)'
@@ -401,30 +481,40 @@ class _Tag_LinkedWith(object):
         self.object = object
 
     def isPasses(self, tag):
-        obj = None
-        if isinstance(self.object, Identity):
-            obj = self.lib.object(self.object)
-        else:
-            obj = self.object
+        if not isinstance(self.object, (Identity, Object)):
+            raise TypeError()
+        obj = self.object.lib.object(self.object)
         return obj.testTag(tag)
 
     def generateSql(self):
-        return 'id in (select tag_id from links where object_id = {0}' \
-                       .format(self.object.id)
+        if self.object and self.object.isValid:
+            return 'id in (select tag_id from links where object_id = {0})' \
+                   .format(self.object.id)
+        else:
+            return _Filter_Block().generateSql()
 
 #####################################################################33
 
 class ObjectFilter(_Filter):
+    @staticmethod
+    def create(atom = None):
+        f = ObjectFilter()
+        f.atom = atom
+        return f
+
     def displayName(self, display_name):
+        """Matches objects with displayNameTemplate equal to given. Allows Wildcard as argument"""
         return self & self.create(_Object_DisplayName(display_name))
 
-    def object(self, obj):
+    def identity(self, obj):
         return self & self.create(_Object_Identity(obj))
 
     def tags(self, tags_filter):
+        """Matches objects that have at least one tag that can pass filter"""
         return self & self.create(_Object_Tags(tags_filter))
 
     def withoutTags(self):
+        """Matches objects that have no tags linked"""
         return self & self.create(_Object_WithoutTags())
 
 class _Object_DisplayName(object):
@@ -445,34 +535,34 @@ class _Object_Identity(object):
         if not obj: return False
         if isinstance(self.__identity, Object):
             return self.__identity.identity == obj.identity
-        elif isinstance(self.__identity, Identity):
-            return self.__identity == obj.identity
         else:
-            raise TypeError()
+            return self.__identity == obj.identity
 
     def generateSql(self):
-        return "id = {0}".format(self.__identity.id)
+        if self.__identity.isValid:
+            return "id = {0}".format(self.__identity.id)
+        else:
+            return _Filter_Block().generateSql()
 
 class _Object_Tags(object):
-    def __init__(self, tag_filter):
-        self.__tagFilter = tag_filter
+    def __init__(self, f):
+        if isinstance(f, (str, Wildcard, TagClass)):
+            self.__tagFilter = TagFilter().tagClass(f)
+        elif isinstance(f, (Tag, Identity)):
+            self.__tagFilter = TagFilter().identity(f)
+        else:
+            self.__tagFilter = f
 
     def isPasses(self, obj):
-        return obj.testTag(tag_filter)
+        return obj.testTag(self.__tagFilter)
 
     def generateSql(self):
-        if isinstance(self.__tagFilter, str) or isinstance(self.__tagFilter, Wildcard) \
-                or isinstance(self.__tagClass, TagClass):
-            self.__tagFilter = TagFilter().tagClass(self.__tagFilter)
-        elif isinstance(self.__tagClass, Tag) or isinstance(self.__tagClass, Identity):
-            self.__tagFilter = TagFilter().tag(self.__tagClass)
-
         return 'id in (select object_id from links where tag_id in ' \
-               '(select id from tags where {0}))'.format(self.__tagFilter.generateSql())
+               '(select id from tags where {0}))'.format(self.__tagFilter.generateSqlWhere())
 
 class _Object_WithoutTags(object):
     def isPasses(self, obj):
         return obj and not obj.allTags
 
     def generateSql(self):
-        return 'id not in (select object_id from links)'
+        return 'id not in (select distinct object_id from links)'

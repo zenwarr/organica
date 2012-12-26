@@ -285,10 +285,10 @@ class FormatString:
         self.__parse()
         return self.__tokens
 
-    def __parse(self, text):
+    def __parse(self):
         if not self.__parsed:
             parser = FormatStringParser()
-            parser.parse(text)
+            parser.parse(self.__template)
             self.__tokens = parser.tokens
             self.__parsed = True
 

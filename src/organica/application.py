@@ -5,7 +5,6 @@ import organica.utils.constants as constants
 from organica.gui.mainwin import MainWindow
 from PyQt4 import QtCore, QtGui
 from PyQt4.QtGui import QWidget
-
 logger = logging.getLogger(__name__)
 
 class InitError(Exception):

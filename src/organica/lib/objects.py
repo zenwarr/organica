@@ -1,7 +1,20 @@
+import copy
 from organica.lib.locator import Locator
 from organica.lib.formatstring import FormatString
-import organica.lib.filters
 import organica.utils.helpers as helpers
+
+def get_identity(some_object):
+    return some_object if isinstance(some_object, Identity) else some_object.identity
+
+def get_tag_class_name(some_object):
+    if isinstance(some_object, str):
+        return some_object
+    else:
+        ident = get_identity(some_object)
+        return ident.lib.tagClass(ident).name if ident.isValid else ''
+
+def is_lib_object(some_object):
+    return isinstance(some_object, Identity) or isinstance(some_object, LibraryObject)
 
 def isCorrectIdent(name):
     """
@@ -92,16 +105,22 @@ class TagValue(object):
         if not TagValue.isValueTypeCorrect(value_type):
             raise ObjectError('invalid value type index')
 
-    _type_traits = {
-        # type_id: (name, prop_name, allowed_python_types, db_encoder, db_decoder)
-        TYPE_NONE: ('None', '', ('NoneType', ), None, None),
-        TYPE_TEXT: ('Text', 'text', ('str', ), None, None),
-        TYPE_NUMBER: ('Number', 'number', ('int', 'float'), None, None),
-        TYPE_LOCATOR: ('Locator', 'locator', (type(Locator).__name__, ), (lambda l: l.databaseForm()),
-                       (lambda c, d: Locator(d))),
-        TYPE_OBJECT_REFERENCE: ('Object reference', 'objectReference', (type(Identity).__name__, ),
-                                (lambda obj: obj.id), _dec_object)
-    }
+    __type_traits = None
+
+    @staticmethod
+    def _type_traits():
+        if not hasattr(TagValue, '__type_traits'):
+            TagValue.__type_traits = {
+                # type_id: (name, prop_name, allowed_python_types, db_encoder, db_decoder)
+                TagValue.TYPE_NONE: ('None', '', (type(None), ), None, None),
+                TagValue.TYPE_TEXT: ('Text', 'text', (str, ), None, None),
+                TagValue.TYPE_NUMBER: ('Number', 'number', (int, float), None, None),
+                TagValue.TYPE_LOCATOR: ('Locator', 'locator', (Locator, ), (lambda l: l.databaseForm()),
+                               (lambda c, d: Locator(d))),
+                TagValue.TYPE_OBJECT_REFERENCE: ('Object reference', 'objectReference', (Identity, Object),
+                                        (lambda obj: obj.id), TagValue._dec_object)
+            }
+        return TagValue.__type_traits
 
     def __init__(self, value = None, value_type = -1):
         if isinstance(value, TagValue):
@@ -115,9 +134,9 @@ class TagValue(object):
         """
         if value_type != -1:
             self._checkValueTypeCorrect(value_type)
-            traits = self._type_traits[value_type]
-            if type(value).__name__ not in traits[2]:
-                expected = ' or '.join(traits[2])
+            traits = self._type_traits()[value_type]
+            if type(value) not in traits[2]:
+                expected = ' or '.join([x.__name__ for x in traits[2]])
                 raise TypeError('invalid value type for {0} ({1}) - {2} expected'
                         .format(value_type, self.typeString(value_type), expected))
 
@@ -136,8 +155,8 @@ class TagValue(object):
     def __getattr__(self, name):
         if not name: raise AttributeError()
 
-        for vt in self._type_traits.keys():
-            traits = self._type_traits[vt]
+        for vt in self._type_traits().keys():
+            traits = self._type_traits()[vt]
             if name == traits[1]:
                 return self.value if self.valueType == vt else None
         else:
@@ -146,8 +165,8 @@ class TagValue(object):
     def __setattr__(self, name, value):
         if not name: raise AttributeError()
 
-        for vt in self._type_traits.keys():
-            traits = self._type_traits[vt]
+        for vt in self._type_traits().keys():
+            traits = self._type_traits()[vt]
             if name == traits[1]:
                 self.setValue(value, vt)
         else:
@@ -166,7 +185,7 @@ class TagValue(object):
         Returns value that can be stored in SQLite database.
         """
         self._checkValueTypeCorrect(self.valueType)
-        traits = self._type_traits[self.valueType]
+        traits = self._type_traits()[self.valueType]
         return traits[3](self.value) if traits[3] else self.value
 
     def printable(self):
@@ -184,9 +203,9 @@ class TagValue(object):
         Returns TagValue object from object stored in database.
         """
         self._checkValueTypeCorrect(cTagClass.valueType)
-        traits = self._type_traits[cTagClass.valueType]
+        traits = self._type_traits()[cTagClass.valueType]
         dbForm = traits[4](cTagClass, dbForm) if traits[4] else dbForm
-        if type(dbForm).__name__ not in traits[2]:
+        if type(dbForm) not in traits[2]:
             raise TypeError('{0} expected for {1}, got {2}'.format(
                             ' or '.join(traits[2])), traits[0], type(dbForm).__name__)
         return TagValue(dbForm, cTagClass.valueType)
@@ -196,15 +215,15 @@ class TagValue(object):
         """
         Get value type index from Python type
         """
-        for vt in TagValue._type_traits.keys():
-            traits = TagValue._type_traits[vt]
-            if type_object.__name__ in traits[2]:
+        for vt in TagValue._type_traits().keys():
+            traits = TagValue._type_traits()[vt]
+            if type_object in traits[2]:
                 return vt
         else:
             return -1
 
     def __eq__(self, other):
-        if not isinstance(other, TagValue) or TagValue.getValueTypeForType(type(other)) == -1:
+        if not isinstance(other, TagValue) and TagValue.getValueTypeForType(type(other)) == -1:
             return NotImplemented
 
         # try to convert value to TagValue (it means we can compare TagValue and, for example, strings)
@@ -216,7 +235,10 @@ class TagValue(object):
         # None values are never equal
         if self.valueType == self.TYPE_NONE: return False
 
-        traits = self._type_traits[self.valueType]
+        if self.valueType == self.TYPE_TEXT:
+            return self.text.casefold() == other.text.casefold()
+
+        traits = self._type_traits()[self.valueType]
         return getattr(self, traits[1]) == getattr(other, traits[1])
 
     def __ne__(self, other):
@@ -227,8 +249,8 @@ class TagValue(object):
         """
         Human-readable name for value type
         """
-        self._checkValueTypeCorrect(valueType)
-        traits = TagValue._type_traits[valueType]
+        TagValue._checkValueTypeCorrect(valueType)
+        traits = TagValue._type_traits()[valueType]
         return traits[0]
 
 class LibraryObject(object):
@@ -256,8 +278,14 @@ class LibraryObject(object):
     def isValid(self):
         return self.identity.isValid
 
-    def validate(self):
-        return True
+    def flush(self, lib = None):
+        if not self.lib and lib:
+            self.identity = Identity(lib)
+        if self.lib:
+            self.lib.flush(self)
+
+    def remove(self):
+        if self.isValid(): self.lib.remove(self)
 
 class TagClass(LibraryObject):
     def __init__(self, name = '', value_type = TagValue.TYPE_TEXT, hidden = False):
@@ -266,11 +294,12 @@ class TagClass(LibraryObject):
         self.valueType = value_type
         self.hidden = hidden
 
-    def flush(self):
-        if self.lib: self.lib.flush(self)
-
-    def remove(self):
-        if self.lib: self.lib.remove(self)
+    def actualize(self):
+        if self.lib:
+            actual = self.lib.tagClass(self.identity)
+            self.name = actual.name
+            self.valueType = actual.valueType
+            self.hidden = actual.hidden
 
     def __m_eq(self, other):
         return self.name.casefold() == other.name.casefold() and \
@@ -287,12 +316,9 @@ class TagClass(LibraryObject):
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def validate(self):
-        return isCorrectIdent(self.name) and (0 <= self.valueType < TagValue.TYPE_MAXIMAL)
-
 class Tag(LibraryObject):
     """
-    Tag is named piece of data that can be linked to object. Tag has class which defines
+    Tag is piece of data that can be linked to object. Tag has class which defines
     type of data.
     There is some trick with tag class and tag class name. To allow creating tag object in this way:
         tag = Tag('class_name', TagValue(TagValue.TYPE_TEXT, 'class_value'))
@@ -308,15 +334,8 @@ class Tag(LibraryObject):
     """
     def __init__(self, tag_class = None, tag_value = None):
         super().__init__()
-        self.value = tag_value if tag_value else TagValue()
-
-        if isinstance(tag_class, TagClass):
-            self.className = tag_class.name
-        elif isinstance(tag_class, Identity):
-            tc = tag_class.lib.tagClass(tag_class)
-            self.className = tc.name if tc else ''
-        else:
-            self.className = tag_class
+        self.value = TagValue(tag_value)
+        self.tagClass = tag_class
 
     @property
     def tagClass(self):
@@ -324,17 +343,48 @@ class Tag(LibraryObject):
 
     @tagClass.setter
     def tagClass(self, tag_class):
-        self.className = tag_class.name if isinstance(tag_class, TagClass) else tag_class
+        if isinstance(tag_class, TagClass):
+            self.className = tag_class.name
+            if self.lib and self.lib is not tag_class.lib:
+                raise ObjectError('library mismatch')
+            if not self.isValid:
+                self.identity = Identity(tag_class.lib)
+        elif isinstance(tag_class, Identity):
+            tc = tag_class.lib.tagClass(tag_class)
+            self.className = tc.name if tc else ''
+            if self.lib and self.lib is not tag_class.lib:
+                raise ObjectError('library mismatch')
+            if not self.isValid:
+                self.identity = Identity(tag_class.lib)
+        else:
+            self.className = tag_class
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, new_value):
+        self._value = TagValue(new_value)
 
     def passes(self, tag_filter):
         if not tag_filter:
             return self.isValid
-        elif isinstance(tag_filter, Tag) or isinstance(tag_filter, Identity):
-            tag_filter = filters.TagFilter().tag(tag_filter)
-        return tag_filter.passes(self)
+        elif isinstance(tag_filter, Tag):
+            import organica.lib.filters as filters
+            tag_filter = filters.TagFilter().tagClass(tag_filter.className).value(tag_filter.value)
+        elif isinstance(tag_filter, Identity):
+            return self.identity == tag_filter
+        return tag_filter.isPasses(self)
+
+    def actualize(self):
+        if self.lib:
+            actual = self.lib.tag(self.identity)
+            self.tagClass = actual.tagClass # although it cannot be changed...
+            self.value = actual.value
 
     def __m_eq(self, other):
-        return self.className == other.className and self.value == other.value
+        return self.className.casefold() == other.className.casefold() and self.value == other.value
 
     def __eq__(self, other):
         if not isinstance(other, Tag): return NotImplemented
@@ -347,16 +397,6 @@ class Tag(LibraryObject):
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def flush(self):
-        if self.lib: self.lib.flush(self)
-
-    def remove(self):
-        if self.lib: self.lib.remove(self)
-
-    def validate(self):
-        return isCorrectIdent(self.className) and \
-                (0 <= self.value.valueType < TagValue.TYPE_MAXIMAL)
-
 class Object(LibraryObject):
     def __init__(self, display_name = '', tags = None):
         super().__init__()
@@ -364,8 +404,8 @@ class Object(LibraryObject):
         self.__allTags = []
         self.__tagsFetched = False
         if tags:
-            for name, value in tags:
-                self.linkTag(Tag(name, value))
+            for name in tags.keys():
+                self.linkTag(Tag(name, tags[name]))
 
     @property
     def displayName(self):
@@ -374,7 +414,7 @@ class Object(LibraryObject):
     @property
     def allTags(self):
         self.ensureTagsFetched()
-        return self.__allTags
+        return copy.copy(self.__allTags)
 
     def setAllTags(self, value):
         self.__tagsFetched = True
@@ -385,17 +425,18 @@ class Object(LibraryObject):
         return [t for t in self.__allTags if t.passes(tag_filter)]
 
     def testTag(self, tag_filter):
-        self.ensureTagsFetched
-        return contains(self.__allTags, lambda t: not t.passes(tag_filter))
+        self.ensureTagsFetched()
+        return helpers.contains(self.__allTags, lambda t: t.passes(tag_filter))
 
     def passes(self, obj_filter):
         if obj_filter is None:
             return self.isValid
         elif isinstance(obj_filter, Object):
-            obj_filter = ObjectFilter.object(obj_filter)
+            import organica.lib.filters as filters
+            obj_filter = ObjectFilter().object(obj_filter)
         elif isinstance(obj_filter, Identity):
-            obj_filter = ObjectFilter.objectIdentity(obj_filter)
-        return obj_filter.passes(self)
+            return self.identity == obj_filter
+        return obj_filter.isPasses(self)
 
     @staticmethod
     def commonTags(objectList):
@@ -405,7 +446,8 @@ class Object(LibraryObject):
             return objectList[0].allTags
 
         def check_t(tag, object):
-            return object.testTag(TagFilter().tagClass(tag.tagClass.name).value(tag.value))
+            import organica.lib.filters as filters
+            return object.testTag(filters.TagFilter().className(tag.className).value(tag.value))
 
         result = objectList[0].allTags
         for obj in objectList[1:]:
@@ -413,10 +455,12 @@ class Object(LibraryObject):
         return result
 
     def linkTag(self, tag):
-        if not self.testTag(TagFilter().tagClass(tag.tagClass).value(tag.value)):
-            self.__allTags.append(tag)
+        import organica.lib.filters as filters
+
+        if tag in self.__allTags:
+            raise ObjectError('tag {0}:{1} already linked to object'.format(tag.className, tag.value.printable()))
         else:
-            raise ObjectError('tag {0}:{1} already linked to object'.format(tag.name, tag.value.printable()))
+            self.__allTags.append(tag)
 
     def linkNewTag(self, tag_class, tag_value):
         self.linkTag(Tag(tag_class, tag_value))
@@ -429,17 +473,17 @@ class Object(LibraryObject):
         else:
             raise TypeError('Object.link() takes 1 or 2 arguments, but {0} given'.format(len(args)))
 
-    def unlink(self, tag_filter):
+    def unlink(self, tag):
         self.ensureTagsFetched()
-        if tag not in self.__allTags:
-            raise ObjectError('tag is not linked')
-        self.__allTags.remove(tag)
 
-    def remove(self):
-        if self.isValid(): self.lib.remove(self)
-
-    def flush(self):
-        if self.isValid(): self.lib.flush(self)
+        if isinstance(tag, Identity):
+            if not helpers.contains(self.__allTags, lambda x: x.identity == tag):
+                raise ObjectError('tag is not linked')
+            self.__allTags = [x for x in self.__allTags if x.identity != tag]
+        else:
+            if tag not in self.__allTags:
+                raise ObjectError('tag is not linked')
+            self.__allTags.remove(tag)
 
     def __m_eq(self, other):
         return self.displayNameTemplate == other.displayNameTemplate \
@@ -458,7 +502,7 @@ class Object(LibraryObject):
 
     def ensureTagsFetched(self):
         if self.isValid and not self.__tagsFetched:
-            self.allTags = self.lib.objectTags(self)
+            self.__allTags = self.lib.objectTags(self)
         self.__tagsFetched = True
 
     def updateTag(self, tag):
@@ -467,3 +511,9 @@ class Object(LibraryObject):
                 if self.__allTags[i].identity == tag.identity:
                     self.__allTags[i] = tag
                     break
+
+    def actualize(self):
+        if self.lib:
+            actual = self.lib.object(self.identity)
+            self.displayNameTemplate = actual.displayNameTemplate
+            self.__allTags = actual.allTags
