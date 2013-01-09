@@ -1,10 +1,10 @@
-import os
 from PyQt4.QtCore import QUrl
+
 
 class Locator(object):
     MANAGED_FILES_SCHEME = 'storage'
 
-    def __init__(self, url = ''):
+    def __init__(self, url=''):
         self.__url = QUrl(url)
         self.__storage = None
 
@@ -18,16 +18,16 @@ class Locator(object):
 
     @staticmethod
     def managedFile(file_path, storage):
-        l = Locator(QUrl(self.MANAGED_FILES_SCHEME + '//' + file_path))
+        l = Locator(QUrl(Locator.MANAGED_FILES_SCHEME + '//' + file_path))
         l.__storage = storage
         return l
 
     @property
-    def isLocalFile(file_path):
+    def isLocalFile(self, file_path):
         return self.__url.isLocalFile()
 
     @property
-    def isStorageFile(file_path):
+    def isStorageFile(self, file_path):
         return self.scheme().casefold() == self.MANAGED_FILES_SCHEME.casefold()
 
     @property

@@ -1,6 +1,7 @@
 import unittest
-from organica.lib.objects import Identity, Object, Tag, TagClass, TagValue
-from organica.lib.filters import TagFilter, ObjectFilter
+from organica.lib.objects import Node, Tag, TagValue
+from organica.lib.library import Library
+
 
 class TestTagValue(unittest.TestCase):
     def test(self):
@@ -16,28 +17,52 @@ class TestTagValue(unittest.TestCase):
         self.assertEqual(value.valueType, TagValue.TYPE_NONE)
         self.assertNotEqual(value, TagValue())
 
+
 class TestTagClass(unittest.TestCase):
     def test(self):
-        tclass = TagClass('new_class')
+        lib = Library.createLibrary(':memory:')
+        tclass = lib.createTagClass('new_class')
+
         self.assertEqual(tclass.name, 'new_class')
         self.assertEqual(tclass.valueType, TagValue.TYPE_TEXT)
         self.assertEqual(tclass.hidden, False)
-        self.assertFalse(tclass.identity.isValid)
 
-        self.assertEqual(tclass, TagClass('NEW_CLASS'))
 
 class TestTag(unittest.TestCase):
     def test(self):
-        tag = Tag('author', 'Lewis Carrol')
+        lib = Library.createLibrary(':memory:')
+        author_class = lib.createTagClass('author')
+
+        tag = Tag(author_class, 'Lewis Carrol')
         self.assertEqual(tag.className, 'author')
-        self.assertEqual(tag.tagClass, None) # as tag class was not created
+        self.assertEqual(tag.tagClass, author_class)
         self.assertEqual(tag.value, 'Lewis Carrol')
+        self.assertEqual(tag.value.valueType, TagValue.TYPE_TEXT)
 
         self.assertTrue(tag.passes(tag))
         self.assertFalse(tag.passes(Tag()))
 
-class TestObject(unittest.TestCase):
+
+class TestNode(unittest.TestCase):
     def test(self):
-        object = Object('some book', {'author': 'Lewis Carrol', 'page_count': 128})
-        self.assertEqual(object.displayNameTemplate, 'some book')
-        self.assertTrue(len(object.allTags), 2)
+        lib = Library.createLibrary(':memory:')
+        author_class = lib.createTagClass('author')
+        page_count_class = lib.createTagClass('page_count')
+
+        node = Node('some_book', (Tag(author_class, 'Lewis Carrol'), Tag(page_count_class, 128)))
+        self.assertEqual(node.displayNameTemplate, 'some_book')
+        self.assertTrue(len(node.allTags), 2)
+        anode = node.flush(lib)
+
+        self.assertTrue(anode.isFlushed)
+        self.assertTrue(Tag(author_class, 'Lewis Carrol') in anode.allTags)
+        self.assertTrue(Tag(page_count_class, 128) in anode.allTags)
+        self.assertEqual(len(anode.allTags), 2)
+
+        year_class = lib.createTagClass('year', TagValue.TYPE_NUMBER)
+        anode.link(Tag(year_class, 1855))
+        self.assertTrue(Tag(year_class, 1855) in anode.allTags)
+        anode = anode.flush()
+
+        self.assertEqual(len(anode.allTags), 3)
+        self.assertTrue(Tag(year_class, 1855) in anode.allTags)

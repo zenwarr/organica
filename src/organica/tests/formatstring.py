@@ -1,10 +1,11 @@
 from organica.lib.formatstring import FormatString
-from organica.lib.objects import Object
+from organica.lib.objects import Node
 import unittest
+
 
 class TestFormatString(unittest.TestCase):
     def test(self):
-        obj = Object('some_name')
+        obj = Node('some_name')
 
         obj.link('author', 'Author name')
         obj.link('pages_count', 289)

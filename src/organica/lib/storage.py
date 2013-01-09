@@ -128,7 +128,7 @@ class LocalStorage(QObject):
         """
         Add file to storage, flushing object on success
         """
-        if obj is None or not obj.isValid:
+        if obj is None or not obj.isFlushed:
             raise ArgumentError('invalid object')
 
         with OperationContext.newOperation('adding files to storage') as op:

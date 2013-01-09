@@ -43,5 +43,6 @@ __pycache__
 # Organica specific
 *.orl
 todo
+docs/
 
 __*

@@ -1,25 +1,35 @@
 import string
+import logging
+
+from PyQt4.QtCore import QFileInfo
+
 import organica.utils.helpers as helpers
+
+
+logger = logging.getLogger(__name__)
+
 
 class ParseError(Exception):
     pass
 
+
 class FormatStringToken:
     def __init__(self):
+        self.start = 0
+        self.length = 0
         self.isBlock = False
         self.value = ''
-        self.specs = {} # each spec is a tuple of two values: spec value
-                        # and quote used for string.
+        self.params = {}
 
-class FormatStringParser:
-    """
-    Some object {tag_name: max_items = '', ellipsis = ''}
 
-    block = block_name [: spec_list]
+class _FormatStringParser:
+    """Some object {tag_name: max_items = '', ellipsis = ''}
+
+    block = block_name [: param_list]
     block_name = (alpha|"_"|"@") {alpha|digit|"_"}
     ident = (alpha|"_") {alpha|digit|"_"}
-    spec_list = spec {, spec}
-    spec = ident ["=" value]
+    param_list = param {, param}
+    param = ident ["=" value]
     value = ("\"" {*} "\"") | ("'" {*} "'") | (alpha|digit|"_") {alpha|digit|"_"}
     """
 
@@ -48,22 +58,33 @@ class FormatStringParser:
             self.__tail = self.__head
             if self.__getChar() == '{':
                 self.__ctoken.isBlock = True
-                self.__ctoken.value = self.__getIdent(is_block_name = True)
+                self.__eatWhitespace()
+                self.__ctoken.start = self.__head
+                self.__ctoken.value = self.__getIdent(is_block_name=True)
                 if not self.__ctoken.value:
-                    raise ParseError('block name expected in format string "{0}" at position {1}'.format(self.text, self.__head))
+                    raise ParseError('block name expected in format string "{0}" at position {1}' \
+                                    .format(self.text, self.__head))
+
                 self.__eatWhitespace()
                 if self.__getChar() == ':':
-                    self.__ctoken.specs = self.__getSpecs()
+                    self.__head += 1
+                    self.__ctoken.params = self.__getParams()
                     self.__eatWhitespace()
+
                 if self.__getChar() != '}':
-                    raise ParseError('end of block expected in format string "{0}" at position {1}'.format(self.text, self.__head))
+                    raise ParseError('end of block expected in format string "{0}" at position {1}' \
+                                     .format(self.text, self.__head))
+
+                self.__ctoken.length = self.__head - self.__ctoken.start
             else:
                 self.__ctoken.isBlock = False
+                self.__ctoken.start = self.__head
                 while not self.__isEnd() and self.__getChar() != '{':
                     if self.__getChar() == '\\':
                         self.__head += 1
                     self.__head += 1
                 self.__ctoken.value = self.__processEscapes(self.text[self.__tail:self.__head])
+                self.__ctoken.length = self.__head - self.__ctoken.start
             self.__tokens.append(self.__ctoken)
         self.__parsed = True
 
@@ -72,29 +93,32 @@ class FormatStringParser:
         built = ''
         for token in tokens:
             if not token.isBlock:
+                # but it can differ from real user input (as it could escape another chars)
                 built.append(helpers.escape(token.value, '{\\'))
             else:
                 built += '{' + token.name
-                if token.specs:
+                if token.params:
                     built += ': '
                     need_comma = False
-                    for spec_name, spec_value, quote_type in token.specs:
+                    for param_name in token.params:
+                        param_value = token.params[param_name][0]
+                        quote_type = token.params[param_name][1]
                         if not need_comma:
                             need_comma = True
                         else:
                             built += ', '
 
-                        if spec_value is None:
-                            built += spec_name
-                        elif isinstance(spec_value, str):
-                            built += '{0} = {2}{1}{2}'.format(spec_name,
-                                                              helpers.escape(spec_value, '"\\'),
+                        if param_value is None:
+                            built += param_name
+                        elif isinstance(param_value, str):
+                            built += '{0} = {2}{1}{2}'.format(param_name,
+                                                              helpers.escape(param_value, '"\\'),
                                                               quote_type)
-                        elif isinstance(spec_value, int):
-                            built += '{0} = {1}'.format(spec_name, spec_value)
+                        elif isinstance(param_value, int):
+                            built += '{0} = {1}'.format(param_name, param_value)
                         else:
-                            raise TypeError('unexpected type for specificator value: {0}' \
-                                            .format(type(spec_value)))
+                            raise TypeError('unexpected type for parameter value: {0}' \
+                                            .format(type(param_value)))
                 built += '}'
         return built
 
@@ -104,7 +128,7 @@ class FormatStringParser:
     def __isEnd(self):
         return len(self.text) >= self.__head
 
-    def __getIdent(self, is_block_name = False):
+    def __getIdent(self, is_block_name=False):
         self.__eatWhitespace()
         c = self.__getChar()
         if c in string.ascii_letters or c == '_' or (is_block_name and c == '@'):
@@ -133,15 +157,16 @@ class FormatStringParser:
                     break
                 self.__head += 1
             if self.__isEnd():
-                raise ParseError('closing quote expected in format string "{0}" for position {1}'.format(self.text, self.__tail))
+                raise ParseError('closing quote expected in format string "{0}" for position {1}' \
+                                    .format(self.text, self.__tail))
             return (self.__processEscapes(self.text[self.__tail + 1:self.__head - 1]),
                     "'" if single_quotes else '"')
-        elif c in string.ascii_letters or c in string.digits or c == '_':
+        elif c.isalpha() or c in string.digits or c == '_':
             self.__head += 1
             while not self.__isEnd():
                 c = self.__getChar()
                 self.__head += 1
-                if not (c in string.ascii_letters or c in string.digits or c == '_'):
+                if not (c.isalpha() or c in string.digits or c == '_'):
                     break
             return (self.text[self.__tail:self.__head], '')
         else:
@@ -155,62 +180,62 @@ class FormatStringParser:
             self.__head += 1
         self.__tail = self.__head
 
-    def __getSpec(self):
+    def __getParam(self):
         name = self.__getIdent()
         if name is None:
-            raise ParseError('identifier expected in format string "{0}" at position {1}'.format(self.text, self.__tail))
+            raise ParseError('identifier expected in format string "{0}" at position {1}' \
+                             .format(self.text, self.__tail))
         self.__eatWhitespace()
 
         value = None
-        quote_type = ''
         if self.__getChar() == '=':
             self.__head += 1
             self.__eatWhitespace()
             value = self.__getValue()
             if not value:
-                raise ParseError('specificator value expected in format string "{0}" ' \
+                raise ParseError('parameter value expected in format string "{0}" ' \
                                  + 'at position {1}'.format(self.text, self.__tail))
         return (name, value[0], value[1])
 
-    def __getSpecList(self):
-        specs = {}
+    def __getParams(self):
+        params = {}
         while True:
             self.__eatWhitespace()
-            name, value, quote_type = self.__getSpec()
-            if name in specs:
-                raise ParseError('duplicated specificator {0} in format string "{1}" at position {2}' \
+            name, value, quote_type = self.__getParam()
+            if name in params:
+                raise ParseError('duplicated parameter {0} in format string "{1}" at position {2}' \
                                  .format(name, self.text, self.__tail))
-            specs[name] = (value, quote_type)
+            params[name] = (value, quote_type)
             self.__eatWhitespace()
             if self.__getChar() != ',':
                 break
-        return specs
+        return params
 
     @staticmethod
     def __processEscapes(text):
         return bytes(text, 'utf-8').decode('unicode_escape')
 
+
 class FormatString:
-    """
-    FormatString allows generating string that depends on properties of object
+    """FormatString allows generating string that depends on properties of object
     basing on template string with special syntax.
     Template is a string with embedded blocks. Block has following syntax:
-        {block_name: spec_name = spec_value, spec2_name = spec2_value}
-    So each block has a name and list of specificators - name-value pairs. During
+        {block_name: param_name = param_value, param2_name = param2_value}
+    So each block has a name and list of parameters - name-value pairs. During
     generating such a block is replaced with value of tag linked to object
-    and having same name as block. Specificators are used to set format options.
+    and having same name as block. Parameters are used to set format options.
 
     If object has more than one tag with specified name, values will be formatted in
-    special way according to values of max_items, separator, end and sort specificators.
+    special way according to values of max_items, separator, end and sort parameters.
 
     If tag value type is:
         TEXT: stored text is used
         NUMBER: number is converted to string
         LOCATOR: locator url is used
         OBJECT_REFERENCE: referenced object' display name is used
-        NONE: empty string or value of 'none' specificator is used.
+        NONE: empty string or value of 'none' parameter is used.
 
-    Predefined specificators:
+    Predefined parameters:
         default
             Specify value to use when no corresponding tag found. Default value is
             not used for NONE type tags (see none instead). Default value is ''
@@ -248,13 +273,13 @@ class FormatString:
             Default value is 'url'
 
     Additional special block names can be registered. Special block names are
-    started with '@'. Note that not all specificators may work correctly with special
+    started with '@'. Note that not all parameters may work correctly with special
     blocks.
     Predefined special blocks:
 
         @
         @name
-            Replaced with object display name. No specificators supported. Avoid
+            Replaced with object display name. No parameters supported. Avoid
             using this block in object display name templates as it can lead to
             infinite recursion.
 
@@ -265,8 +290,14 @@ class FormatString:
         '@name': (lambda obj, token: obj.displayName)
     }
 
-    def __init__(self, template = ''):
-        self.__template = template
+    __known_params = ['default', 'none', 'max_items', 'sort', 'separator',
+                      'end', 'locator']
+
+    def __init__(self, template=''):
+        if isinstance(template, FormatString):
+            self.__template = template.template
+        else:
+            self.__template = template
         self.__tokens = []
         self.__parsed = False
 
@@ -287,7 +318,7 @@ class FormatString:
 
     def __parse(self):
         if not self.__parsed:
-            parser = FormatStringParser()
+            parser = _FormatStringParser()
             parser.parse(self.__template)
             self.__tokens = parser.tokens
             self.__parsed = True
@@ -295,24 +326,26 @@ class FormatString:
     @staticmethod
     def registerCustomBlock(block_name, callback):
         if not block_name or block_name[0] != '@':
-            raise ArgumentError('invalid block name {0}, should start with @'.format(block_name))
-        if block_name in self.custom_blocks:
-            raise ArgumentError('custom block with same name already registered')
-        self.custom_blocks[block_name] = callback
+            raise TypeError('invalid block name {0}, should start with @'.format(block_name))
+        if block_name in FormatString.custom_blocks:
+            raise TypeError('custom block with same name already registered')
+        FormatString.custom_blocks[block_name] = callback
 
     @staticmethod
     def unregisterCustomBlock(block_name):
-        if block_name in self.custom_blocks:
-            self.custom_blocks.remove(block_name)
+        if block_name in FormatString.custom_blocks:
+            FormatString.custom_blocks.remove(block_name)
 
     def __tagValue(self, tag_value, block):
+        from organica.lib.objects import TagValue
+
         if tag_value.valueType == TagValue.TYPE_TEXT:
             return tag_value.text
         elif tag_value.valueType == TagValue.TYPE_NUMBER:
             return str(tag_value.number)
         elif tag_value.valueType == TagValue.TYPE_LOCATOR:
             url = tag_value.locator.url
-            mode = block.specs['locator'] if 'locator' in block.specs else 'url'
+            mode = block.params['locator'] if 'locator' in block.params else 'url'
             mode = mode.lower()
             if mode == 'url':
                 return url.toString()
@@ -327,15 +360,21 @@ class FormatString:
             elif mode == 'ext' or mode == 'extension':
                 return QFileInfo(url.toLocalFile()).suffix()
             else:
-                raise ParseError('unknown value for "locator" specificator: {0}'.format(mode))
-        elif tag_value.valueType == TagValue.TYPE_OBJECT_REFERENCE:
-            return tag_value.objectReference.displayName
+                raise ParseError('unknown value for "locator" parameter: {0}'.format(mode))
+        elif tag_value.valueType == TagValue.TYPE_NODE_REFERENCE:
+            obj_identity = tag_value.objectReference
+            if obj_identity.isFlushed:
+                return obj_identity.lib.object(obj_identity).displayNameTemplate
+            else:
+                return ''
         elif tag_value.valueType == TagValue.TYPE_NONE:
-            return '' if 'none' not in block.specs else block.specs['none']
+            return '' if 'none' not in block.params else block.params['none']
         else:
             return ''
 
     def format(self, obj):
+        from organica.lib.filters import TagQuery
+
         self.__parse()
 
         formatted = ''
@@ -350,38 +389,48 @@ class FormatString:
                         raise ParseError('unknown special block: {0}'.format(token.value))
                     values = self.custom_blocks[token.value](obj, token)
                 else:
-                    tags = obj.tags(TagFilter().tagClass(token.value))
+                    tags = obj.tags(TagQuery(tagClass=token.value))
                     if tags:
                         values = [self.__tagValue(t.value) for t in tags]
 
+                    # find unknown parameters
+                    for param in token.params.keys():
+                        if param not in FormatString.__known_params:
+                            logger.warn('unknown parameter: {0} in "{1}"'.format(param, self.template))
+
                 if not values:
-                    if 'default' in token.specs and token.specs['default']:
-                        values.append(token.specs['default'])
+                    if 'default' in token.params and token.params['default']:
+                        values.append(token.params['default'])
                     else:
                         values = ['']
 
-                sort = token.specs.get('sort') or 'asc'
+                sort = token.params.get('sort') or 'asc'
                 if sort.lower() in ('asc', 'desc'):
-                    values = sorted(values, key = str.lower, reverse = sort.lower() == 'asc')
+                    values = sorted(values, key=str.lower, reverse=(sort.lower() == 'asc'))
                 else:
-                    raise ParseError('only allowed values for "sort" specificator are "asc" and "desc"')
+                    raise ParseError('only allowed values for "sort" parameter are "asc" and "desc"')
 
                 if len(values) == 1:
                     formatted.append(str(values))
                 else:
                     overcount = False
-                    max_items = token.specs['max_items'] or 7
+                    max_items = token.params['max_items'] or 7
                     if not isinstance(max_items, int):
-                        raise ParseError('number expected for max_items specificator')
+                        raise ParseError('number expected for max_items parameter')
 
                     if max_items > 0 and len(values) > max_items:
                         values = values[:max_items]
                         overcount = True
 
-                    end = str(token.specs.get('end') or '...')
-                    separator = str(token.specs.get('separator') or ', ')
+                    end = str(token.params.get('end') or '...')
+                    separator = str(token.params.get('separator') or ', ')
 
                     formatted.append(separator.join(values))
-                    if overcount: formatted.append(end)
+                    if overcount:
+                        formatted.append(end)
 
         return formatted
+
+    @staticmethod
+    def buildFromTokens(token_list):
+        return _FormatStringParser.buildFromTokens(token_list)

@@ -1,8 +1,9 @@
 import unittest
 import organica.lib.library as library
 import organica.lib.objects as objects
-from organica.lib.objects import TagValue, Tag, Object, TagClass, Identity
+from organica.lib.objects import TagValue, Identity
 from organica.lib.library import LibraryError
+
 
 class TestLibraryMeta(unittest.TestCase):
     def setUp(self):
@@ -40,6 +41,7 @@ class TestLibraryMeta(unittest.TestCase):
         self.assertFalse(objects.isCorrectIdent('meta!'))
         self.assertTrue(objects.isCorrectIdent('meta2_name'))
 
+
 class TestLibraryTagClasses(unittest.TestCase):
     def setUp(self):
         self.lib = library.Library.createLibrary(':memory:')
@@ -67,11 +69,11 @@ class TestLibraryTagClasses(unittest.TestCase):
         # tagClass
         class_author = self.lib.tagClass('author')
         self.assertEqual(class_author.name, 'author')
-        self.assertTrue(class_author.isValid)
+        self.assertTrue(class_author.isFlushed)
 
         class_author = self.lib.tagClass(class_author.identity)
         self.assertEqual(class_author.name, 'author')
-        self.assertTrue(class_author.isValid)
+        self.assertTrue(class_author.isFlushed)
 
         class_author = self.lib.tagClass('book')
         self.assertFalse(class_author)
