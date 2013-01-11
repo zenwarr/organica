@@ -1,37 +1,56 @@
-import os, json, logging
-import organica.utils.constants as constants
-from organica.utils.singleton import Singleton
+import os
+import json
+import logging
+
 from PyQt4.QtCore import QObject, pyqtSignal
 from PyQt4.QtGui import QAction, QKeySequence, QMenuBar, QMenu, QToolBar
 
+import organica.utils.constants as constants
+
+
 logger = logging.getLogger(__name__)
 
+
 class Command(QAction):
-    def __init__(self, id, userText, validator = None, default_shortcut = QKeySequence()):
-        QAction.__init__(self, userText)
+    def __init__(self, id, user_text, validator=None, default_shortcut=QKeySequence()):
+        QAction.__init__(self, user_text)
         self.id = id
         self.defaultShortcut = default_shortcut
         self.setShortcut(default_shortcut)
-        self.setValidator(validator)
+        self.validator = validator
 
     def resetShortcut(self):
+        """Reset command shortcut to default value
+        """
+
         self.setShortcut(self.defaultShortcut)
 
-    def setValidator(self, validator):
-        if validator == self.validator:
+    @property
+    def validator(self):
+        """Validator is object that determines if command should be enabled at current moment.
+        None validator means that command is always e
+        """
+
+        return self.__validator
+
+    @validator.setter
+    def validator(self, new_validator):
+        if new_validator == self.__validator:
             return
 
-        if self.validator is not None:
-            self.validator.stateChanged.disconnect(self.setEnabled)
-        self.validator = validator
-        self.setEnabled(self.validator is not None or self.validator.isActive())
-        if self.validator:
-            self.validator.connect(self.setEnabled)
+        if self.__validator:
+            self.__validator.stateChanged.disconnect(self.setEnabled)
+
+        self.__validator = new_validator
+        self.setEnabled(not self.__validator or self.__validator.isActive)
+        if self.__validator:
+            self.__validator.connect(self.setEnabled)
+
 
 class CommandContainer:
-    def __init__(self, id, userText = ''):
+    def __init__(self, id, user_text=''):
         self.id = id
-        self.userText = userText
+        self.userText = user_text
 
     def appendSeparator(self):
         raise NotImplementedError()
@@ -42,141 +61,206 @@ class CommandContainer:
     def appendContainer(self, cont):
         raise NotImplementedError()
 
-class CommandManager(Singleton):
+
+class ShortcutScheme(object):
+    def __init__(self, shortcuts_map=None):
+        self.shortcuts = shortcuts_map or dict()
+
+    def save(self, filename, keep_unloaded=True):
+        """Save scheme into file with :filename:. If :filename: is relative path,
+        it will be resolved with constants.data_dir base.
+        If :keep_unloaded: is true, scheme will be merged with one already saved in target
+        file (shortcuts for commands not registered at this moment will not be overwritten).
+        Otherwise scheme saved in file will have only currently registered shortcuts.
+        """
+
+        filename = self.__getSchemeFilename(filename)
+        with open(filename, 'rwt') as f:
+            scheme = self.shortcuts
+
+            if keep_unloaded:
+                saved_scheme = json.load(f)
+                if saved_scheme and isinstance(saved_scheme, dict):
+                    for cmd_id in saved_scheme.keys():
+                        if cmd_id not in scheme:
+                            saved_scheme[cmd_id] = saved_scheme[cmd_id]
+
+            json.dump(scheme, f, ensure_ascii=False, indent=4)
+
+    @staticmethod
+    def load(filename):
+        """Load scheme from file :filename:
+        """
+
+        filename = ShortcutScheme.__getSchemeFilename(filename)
+        with open(filename, 'rt') as f:
+            loaded_struct = json.load(f)
+            if not isinstance(loaded_struct, dict):
+                raise TypeError('invalid shortcut scheme file {0}'.format(filename))
+            shortcutMapping = dict((cmd_id, QKeySequence(shortcut)) \
+                                        for cmd_id, shortcut in loaded_struct.items())
+        return ShortcutScheme(shortcutMapping)
+
+    @staticmethod
+    def __getFilename(filename):
+        return filename if os.path.isabs(filename) else os.path.join(constants.data_dir,
+                                                                     filename)
+
+
+class CommandManager(object):
+    """Command manager manages commands and holds shortcut scheme.
+    """
+
     SHORTCUTS_CONFIG_FILENAME = 'shortcuts.conf'
 
-    def singleton_init(self):
-        pass
-
-    def __singleton_init(self):
+    def __init__(self):
         self.commands = {}
         self.containers = {}
-        self.shortcutMapping = {}
         self.validators = {}
+        self.__shortcutScheme = ShortcutScheme()
+
+    @property
+    def shortcutScheme(self):
+        return self.__shortcutScheme
+
+    @shortcutScheme.setter
+    def shortcutScheme(self, new_scheme):
+        if self.__shortcutScheme is new_scheme:
+            return
+
+        # update shortcuts for all loaded commands
+        for cmd in self.commands.values():
+            if cmd.shortcut() != cmd.defaultShortcut:
+                if cmd.id in self.__shortcutScheme:
+                    cmd.setShortcut(self.__shortcutScheme.shortcuts[cmd.id])
+                else:
+                    cmd.resetShortcut()
 
     def addCommand(self, cmd):
-        if cmd is not None and len(cmd.id) > 0 and not self.commands.contains(cmd.id):
-            if cmd.id in self.shortcutMapping:
-                cmd.setShortcut(self.shortcutMapping[cmd.id])
-            self.commands[cmd.id] = cmd
-        else:
-            raise ArgumentError('invalid command')
+        """Add given command to CommandManager. This allows user to manage command,
+        change it shortcut, etc.
+        """
 
-    def addCommand(self, slot, cmd_id, user_text, validator = None, def_shortcut = QKeySequence()):
-        if len(cmd_id) == 0 or cmd_id in self.commands:
-            raise ArgumentError('invalid command id')
+        if not cmd or not cmd.id or cmd.id in self.commands:
+            raise TypeError('invalid argument: cmd')
+
+        # if current shortcut scheme redefines key for this command
+        if cmd.id in self.shortcutMapping:
+            cmd.setShortcut(self.shortcutMapping[cmd.id])
+        self.commands[cmd.id] = cmd
+
+    def addNewCommand(self, slot, cmd_id, user_text, validator=None, def_shortcut=QKeySequence()):
+        """Create new command and add it with CommandManager.addCommand
+        """
+
+        if not cmd_id or cmd_id in self.commands:
+            raise TypeError('invalid argument: cmd_id')
         cmd = Command(cmd_id, user_text, validator, def_shortcut)
-        if slot is not None:
+        if slot:
             cmd.triggered.connect(slot)
         self.addCommand(cmd)
         return cmd
 
     def command(self, id):
-        return self.commands[id] if id in self.commands else None
+        """Get command by its id or shortcut
+        """
 
-    def command(self, shortcut):
-        for c in self.commands.values():
-            if c.shortcut == shortcut:
-                return c
-        return None
+        if isinstance(id, str):
+            return self.commands.get(id)
+        else:
+            for c in self.commands.values():
+                if c.shortcut == id:
+                    return c
+            return None
 
     def addContainer(self, container):
         if not container or container.id in self.containers:
-            raise ArgumentError('invalid container')
+            raise TypeError('invalid argument: container')
         self.containers[container.id] = container
 
     def container(self, id):
-        return self.containers[id] if id in self.containers else None
+        return self.containers.get(id)
 
     def addValidator(self, validator):
-        if validator is None or validator.id in self.validators:
-            raise ArgumentError('invalid validator')
+        if not validator or validator.id in self.validators:
+            raise TypeError('invalid argument: validator')
         self.validators[validator.id] = validator
 
     def validator(self, id):
-        return self.validators[id] if id in self.validators else None
+        return self.validators.get(id)
 
-    def saveShortcuts(self):
-        """
-        Saves all shortcuts that are different from default shortcuts into file.
-        Calling this function will reset all shortcuts for extensions that are
-        not loaded at this moment.
-        """
-        conf_file = os.path.join(constants.data_dir, self.SHORTCUTS_CONFIG_FILENAME)
-        try:
-            f = open(conf_file, 'wt')
-            with f:
-                json.dump(self.shortcutMapping, f, ensure_ascii=False, indent=4)
-        except OSError as err:
-            logger.error('failed to save shortcuts config: {0}'.format(str(err)))
+    def saveShortcutScheme(self):
+        self.shortcutScheme.save(os.path.join(constants.data_dir, self.SHORTCUTS_CONFIG_FILENAME))
 
-    def loadShortcuts(self):
-        conf_file = os.path.join(constants.data_dir, self.SHORTCUTS_CONFIG_FILENAME)
-        if not os.path.exists(conf_file):
-            return
-        try:
-            f = open(conf_file, 'rt')
-            with f:
-                s = json.load(f)
-                if not isinstance(s, dict):
-                    raise OSError('invalid config file format')
-                self.shortcutMapping = s
-        except OSError as err:
-            logger.error('failed to read shortcuts config: {0}'.format(str(err)))
+    def loadShortcutScheme(self):
+        self.shortcutScheme = ShortcutScheme.load(os.path.join(constants.data_dir,
+                                                  self.SHORTCUTS_CONFIG_FILENAME))
+
+
+_globalCommandManager = None
+
+
+def globalCommandManager():
+    global _globalCommandManager
+    if not _globalCommandManager:
+        _globalCommandManager = CommandManager()
+    return _globalCommandManager
 
 
 class QMenuCommandContainer(QMenu, CommandContainer):
-    def __init__(self, id, user_text, parent = None):
+    def __init__(self, id, user_text, parent=None):
         QMenu.__init__(self, parent)
         CommandContainer.__init__(self, id, user_text)
 
     def appendCommand(self, command):
-        if isinstance(str, command):
-            command = CommandManager().command(command)
+        if isinstance(command, str):
+            command = globalCommandManager().command(command)
         if command is not None:
             self.addAction(command)
 
     def appendContainer(self, container):
-        if isinstance(str, container):
-            container = CommandManager().container(container)
+        if isinstance(container, str):
+            container = globalCommandManager().container(container)
         if container is not None:
-            if not isinstance(QMenuCommandContainer, container):
+            if not isinstance(container, QMenuCommandContainer):
                 raise TypeError('menu container expected')
             self.addMenu(container)
 
     def appendSeparator(self):
         self.addSeparator()
 
+
 class QMenuBarCommandContainer(QMenuBar, CommandContainer):
-    def __init__(self, id, parent = None):
+    def __init__(self, id, parent=None):
         QMenuBar.__init__(self, parent)
         CommandContainer.__init__(self, id)
 
     def appendCommand(self, command):
-        if isinstance(str, command):
-            command = CommandManager().command(command)
+        if isinstance(command, str):
+            command = globalCommandManager().command(command)
         if command is not None:
             self.addAction(command)
 
     def appendContainer(self, container):
-        if isinstance(str, container):
-            command = CommandManager().container(command)
+        if isinstance(container, str):
+            container = globalCommandManager.container(container)
         if container is not None:
-            if not isinstance(QMenuCommandContainer, container):
+            if not isinstance(container, QMenuCommandContainer):
                 raise TypeError('menu container expected')
             self.addMenu(container)
 
     def appendSeparator(self):
         self.addSeparator()
 
+
 class QToolBarCommandContainer(QToolBar, CommandContainer):
-    def __init__(self, id, userText, parent = None):
+    def __init__(self, id, userText, parent=None):
         QToolBar.__init__(self, parent)
         CommandContainer.__init__(self, id, userText)
 
     def addCommand(self, command):
-        if isinstance(str, command):
-            command = CommandManager().command(command)
+        if isinstance(command, str):
+            command = globalCommandManager().command(command)
         if command is not None:
             self.addAction(command)
 
@@ -186,6 +270,7 @@ class QToolBarCommandContainer(QToolBar, CommandContainer):
     def addSeparator(self):
         self.addSeparator()
 
+
 class StateValidator(QObject):
     stateChanged = pyqtSignal(bool)
 
@@ -193,6 +278,7 @@ class StateValidator(QObject):
         QObject.__init__(self)
         self.__id = id
 
+    @property
     def isActive(self):
         raise NotImplementedError()
 
@@ -200,25 +286,24 @@ class StateValidator(QObject):
     def id(self):
         return self.__id
 
+
 class StandardStateValidator(StateValidator):
     def __init__(self, id):
         StateValidator.__init__(self, id)
         self.__isActive = False
 
+    @property
     def isActive(self):
         return self.__isActive
 
-    def activate(self):
-        if not self.__isActive:
-            self.__isActive = True
-            self.stateChanged.emit(True)
-
-    def deactivate(self):
-        if self.__isActive:
-            self.__isActive = False
-            self.stateChanged.emit(False)
-
-    def setActive(self, value):
+    @isActive.setter
+    def isActive(self, value):
         if self.__isActive != value:
             self.__isActive = value
             self.stateChanged.emit(value)
+
+    def activate(self):
+        self.isActive = True
+
+    def deactivate(self):
+        self.isActive = False

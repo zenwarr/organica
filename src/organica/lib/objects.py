@@ -1,5 +1,5 @@
-import copy
 import string
+from copy import copy, deepcopy
 
 import organica.utils.helpers as helpers
 
@@ -12,7 +12,7 @@ def isCorrectIdent(name):
     """Check if name can be used as class or meta name
     """
     return name and isinstance(name, str) and len(name) <= 1000 and \
-            helpers.each(name, lambda x: x in string.ascii_letters or x in '_')
+            helpers.each(name, lambda x: x in string.ascii_letters or x in string.digits or x in '_')
 
 
 class ObjectError(Exception):
@@ -21,8 +21,7 @@ class ObjectError(Exception):
 
 class Identity(object):
     """Each flushed library object has an identity that unically identifies an entry in
-    underlying database and helps distinguish it from other objects.
-    Identity is immutable.
+    underlying database. Identity is immutable.
     """
     def __init__(self, lib=None, id=-1):
         self.__lib = lib
@@ -41,7 +40,7 @@ class Identity(object):
         """Identity is valid (flushed) if there is real database row representing
         corresponding library object.
         """
-        return self.lib and self.id > 0
+        return self.lib is not None and self.id > 0
 
     def __eq__(self, other):
         """Two unflushed identities are not equal"""
@@ -59,19 +58,18 @@ class Identity(object):
 class TagValue(object):
     """Represents value assotiated with tag.
     Value has a type. Currently only limited set of types is supported:
-        - TEXT: textual information mapped to Python str or SQLite TEXT types.
+        - TEXT: textual information mapped to Python str and SQLite TEXT types.
         - NUMBER: integer or floating-point number mapped to Python int or float
-                  or SQLite INTEGER or REAL types.
+                  and SQLite INTEGER or REAL types.
         - LOCATOR: special type representing an URL. Mapped to Python Locator
-                  type. Represented with TEXT in SQLite.
-        - OBJECT_REFERENCE: an identifier of library object. Mapped to data node identity in Python
-                  and INTEGER referencing table objects in SQLite database.
-        - NONE: an invalid value. Mapped to Python None and SQLite NULL. This type
-                is compatible with all other types and value of this type can be
-                assigned to tag with any type.
+                  type and SQLite TEXT.
+        - NODE_REFERENCE: an identifier of library object. Mapped to node identity in Python
+                  and INTEGER referencing row from 'nodes' table in SQLite database.
+        - NONE: an empty value. Mapped to Python None and SQLite NULL. Value of
+                  this type can be assigned to tags with any value type.
     """
 
-    # values for supported types
+    # constants for value types
     TYPE_NONE, TYPE_TEXT, TYPE_NUMBER, TYPE_LOCATOR, TYPE_NODE_REFERENCE = range(5)
 
     @staticmethod
@@ -94,6 +92,7 @@ class TagValue(object):
         if not hasattr(TagValue, '__type_traits'):
             from organica.lib.locator import Locator
 
+            # function to decode value stored in db to Python object
             def dec_object(tag_class, db_form):
                 if tag_class.lib.object(Identity(tag_class.lib, int(db_form))):
                     return Identity(tag_class.lib, int(db_form))
@@ -164,6 +163,7 @@ class TagValue(object):
             traits = self._type_traits()[vt]
             if name == traits[1]:
                 self.setValue(value, vt)
+                break
         else:
             return object.__setattr__(self, name, value)
 
@@ -256,7 +256,8 @@ class LibraryObject(object):
     """Abstract base class for data nodes, tags and tag classes,
     There are some tricks in comparing LibraryObjects. General rule is that
     two library objects are equal if all database-stored properties are
-    would be equal after flushing both objects into same library.
+    would be equal after flushing both objects into same library and
+    comparing results returned by LibraryObject.flush.
     Speaking of object identity, objects are not equal only if both identities
     are flushed and different. In other cases remained fields will be compared
     to get real result.
@@ -285,17 +286,32 @@ class LibraryObject(object):
 
     @property
     def isFlushed(self):
+        """True if this object has valid (flushed) identity.
+        """
+
         return self.identity.isFlushed
 
     def flush(self, lib=None):
-        if not self.lib and lib:
-            self.identity = Identity(lib)
+        """Flush changes in this object into database. Can modify this object
+        identity and (for Node) identites of linked tags.
+        """
+
+        if lib:
+            if not self.lib:
+                self.identity = Identity(lib)
+            elif self.lib is not lib:
+                raise ObjectError('LibraryObject assotiated with another library')
+
         if self.lib:
             self.lib.flush(self)
 
     def remove(self):
-        if self.isFlushed():
+        """If object is flushed, remove it from library
+        """
+
+        if self.isFlushed:
             self.lib.remove(self)
+            self.identity = Identity(self.lib)
 
 
 class TagClass(LibraryObject):
@@ -310,7 +326,7 @@ class TagClass(LibraryObject):
         if not isCorrectIdent(name):
             raise ObjectError('invalid name for tag class: {0}'.format(name))
         if not TagValue.isValueTypeCorrect(value_type):
-            raise ObjectError('invalid value type for tag class: {1}'.format(value_type))
+            raise ObjectError('invalid value type for tag class: {0}'.format(value_type))
 
         self.__name = name
         self.__valueType = value_type
@@ -330,7 +346,8 @@ class TagClass(LibraryObject):
 
     def __eq__(self, other):
         """Two classes are equal if have same names, value type and hidden flag,
-        but never equal if identities are flushed and different.
+        but never equal if identities are flushed and different. Name comparision
+        is not case-sensitive.
         """
 
         if not isinstance(other, TagClass):
@@ -348,9 +365,11 @@ class TagClass(LibraryObject):
 
 
 class Tag(LibraryObject):
-    """Tag is piece of data that can be linked to object. Tag has class which defines
-    type of data and value. You should always construct Tag object with valid (flushed)
+    """Tag is piece of data that can be linked to object. Tag has value and class which defines
+    type of value data. You should always construct Tag object with valid (flushed)
     tag class object or its identity (using class name is not allowed).
+    If you prefer clean syntax, it is possible to use lib.createTag that accepts
+    class name.
     """
 
     def __init__(self, tag_class=None, tag_value=None):
@@ -375,7 +394,7 @@ class Tag(LibraryObject):
     def passes(self, condition):
         """Check if this tag satisfies given condition. Condition can be tag Identity - in this case
         method checks if this identity equal to tag identity. Condition can be Tag object - method will
-        return result of comparision between :condition: and this tag. Condition can be TagFilter.
+        return result of comparision between :condition: and this tag. Condition can be TagQuery.
         If condition is None, method will return True.
         """
 
@@ -399,8 +418,7 @@ class Tag(LibraryObject):
         if self.isFlushed and other.isFlushed and self.identity != other.identity:
             return False
 
-        return self.className.casefold() == other.className.casefold() and \
-               self.value == other.value
+        return self.tagClass == other.tagClass and self.value == other.value
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -427,25 +445,25 @@ class Node(LibraryObject):
 
     @property
     def allTags(self):
-        """Get copy of list containing all tags linked with this node.
+        """Get deep copy of list containing all tags linked with this node.
         """
 
         self.ensureTagsFetched()
-        return copy.copy(self.__allTags)
+        return deepcopy(self.__allTags)
 
     def setAllTags(self, value):
         """Overrides list containing tags linked with given value. Value should be list of Tag objects.
         """
 
         self.__tagsFetched = True
-        self.__allTags = value
+        self.__allTags = deepcopy(value)
 
     def tags(self, condition=None):
         """Get list of tags that satisfies given condition. See Tag.passes for details about condition.
         """
 
         self.ensureTagsFetched()
-        return [t for t in self.__allTags if t.passes(condition)]
+        return [deepcopy(t) for t in self.__allTags if t.passes(condition)]
 
     def testTag(self, condition):
         """Check if at least one tag satisfying given condition is linked with node. See Tag.passes for
@@ -457,8 +475,8 @@ class Node(LibraryObject):
 
     def passes(self, condition):
         """Check if this node satisfies given condition. Condition can be node Identity - in this case
-        method checks if this identity equal to node identity. Condition can be Node object - method will
-        return result of comparision between :condition: and this node. Condition can be ObjectFilter.
+        method checks if this identity equal to node identity. Condition can be Node - method will
+        return result of comparision between :condition: and this node. Condition can be NodeQuery.
         If condition is None, method will return True.
         """
 
@@ -478,8 +496,6 @@ class Node(LibraryObject):
 
         if not nodeList:
             return []
-        elif len(nodeList) == 1:
-            return nodeList[0].allTags
 
         result = nodeList[0].allTags
         for node in nodeList[1:]:
@@ -487,17 +503,16 @@ class Node(LibraryObject):
         return result
 
     def linkTag(self, tag):
-        """Links tag to this node. If same tag already linked to node, ObjectError will be raised.
+        """Link tag to this node. If same tag already linked to node, ObjectError will be raised.
         Note that even tags with non-equal identities but having equal classes and values will conflict.
         Node will hold copy of given Tag object, not original one.
         """
 
-        import organica.lib.filters as filters
-        f = filters.TagFilter(tag_class=tag.tagClass, value=tag.value)
-        if self.testTag(f):
+        from organica.lib.filters import TagQuery
+        if self.testTag(TagQuery(tag_class=tag.tagClass, value=tag.value)):
             raise ObjectError('tag {0}:{1} already linked to object'.format(tag.className, tag.value.printable()))
         else:
-            self.__allTags.append(copy.copy(tag))
+            self.__allTags.append(deepcopy(tag))
 
     def linkNewTag(self, tag_class, tag_value):
         """Convenience method that creates tag with given class and value and immediately links it
@@ -519,33 +534,33 @@ class Node(LibraryObject):
             raise TypeError('Node.link() takes 1 or 2 arguments, but {0} given'.format(len(args)))
 
     def unlink(self, condition):
-        """Unlink tag linked to node. If given tag is not linked to node, ObjectError will be raised.
-        When Identity is passed as argument, it will unlink tag with given identity. If argument is
-        Tag, it will remove tag with same class and value (but even with different identity. Things
-        are made in this way to avoid mess with flushed and unflushed tags). Method can also accept
-        filter as argument, removing all tags that pass filter. In this case no ObjectError will be
-        raised when no tags satisfying filter will be found.
+        """Unlink tag linked to node. Can accept following argument of types:
+            - Identity: removes tag with this identity. If invalid identity given,
+                        ObjectError is raised. If no tag with given identity is linked,
+                        ObjectError is raised.
+            - Tag: removes tag which equal to given one. If no such tag linked, ObjectError
+                        is raised.
+            - TagQuery: removes tags that pass given query. Does not raise ObjectError
+                        when no tags found.
         """
 
         self.ensureTagsFetched()
 
-        if isinstance(condition, Identity):
-            if not helpers.contains(self.__allTags, lambda x: x.identity == condition):
-                raise ObjectError('tag #{0} is not linked to node, failed to unlink' \
-                                  .format(condition.id))
-            self.__allTags = [x for x in self.__allTags if x.identity != condition]
-        elif isinstance(condition, Tag):
-            import organica.lib.filters as filters
-            f = filters.TagQuery(tag_class=condition.tagClass, value=condition.value)
-            if not self.testTag(f):
-                raise ObjectError('tag {0}:{1} is not linked to node, failed to unlink' \
-                                  .format(condition.className, condition.value.printable()))
-            self.__allTags = [x for x in self.__allTags if not f.passes(x)]
+        if isinstance(condition, (Identity, Tag)):
+            if not self.testTag(condition):
+                if isinstance(condition, Identity):
+                    m = '#{0}'.format(condition.id)
+                else:
+                    m = '{0}:{1} (#{2})'.format(condition.className, condition.value.printable(),
+                                                condition.id)
+                raise ObjectError('tag {0} is not linked to node'.format(m))
+            self.__allTags = [x for x in self.__allTags if not x.passes(condition)]
         else:
             self.__allTags = [x for x in self.__allTags if not condition.passes(x)]
 
     def __eq__(self, other):
-        """Nodes are different. Nodes can be equal only if both identities ARE FLUSHED
+        """Nodes are different from other LibraryObject.
+        Nodes can be equal only if both identities ARE FLUSHED
         and equal, and displayNameTemplates and allTags are equal too.
         So two copy of same unflushed node will not be equal.
         """
@@ -556,8 +571,9 @@ class Node(LibraryObject):
         if self.identity != other.identity:
             return False
 
+        self.ensureTagsFetched()
         return self.displayNameTemplate == other.displayNameTemplate and \
-               sorted(self.allTags) == sorted(other.allTags)
+               len(Node.commonTags((self, other))) == len(self.__allTags)
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -577,8 +593,8 @@ class Node(LibraryObject):
         """This method is used internally by Library object code to update linked tag when it is updated.
         """
 
-        if self.__tagsFetched:
+        if self.isFlushed and self.__tagsFetched:
             for i in range(len(self.__allTags)):
                 if self.__allTags[i].isFlushed and self.__allTags[i].identity == tag.identity:
-                    self.__allTags[i] = tag
+                    self.__allTags[i] = deepcopy(tag)
                     break

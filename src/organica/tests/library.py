@@ -3,6 +3,7 @@ import organica.lib.library as library
 import organica.lib.objects as objects
 from organica.lib.objects import TagValue, Identity
 from organica.lib.library import LibraryError
+from organica.lib.filters import Wildcard
 
 
 class TestLibraryMeta(unittest.TestCase):
@@ -56,14 +57,12 @@ class TestLibraryTagClasses(unittest.TestCase):
         self.assertEqual(class_author.name, 'author')
         self.assertEqual(class_author.valueType, TagValue.TYPE_TEXT)
         self.assertEqual(class_author.hidden, False)
+        self.assertEqual(class_author, self.lib.createTagClass('author'))
 
-        with self.assertRaises(LibraryError):
-            self.lib.createTagClass('author')
-
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.lib.createTagClass('what_the_f**k')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.lib.createTagClass('another_class', 2988)
 
         # tagClass
@@ -84,6 +83,5 @@ class TestLibraryTagClasses(unittest.TestCase):
         classes = self.lib.tagClasses('author')
         self.assertListEqual(classes, [self.lib.tagClass('author')])
 
-        classes = self.lib.tagClasses('a*')
-        self.assertListEqual(classes, [self.lib.tagClass('author'),
-                                       self.lib.tagClass('another_class')])
+        classes = self.lib.tagClasses(Wildcard('a*'))
+        self.assertListEqual(classes, [self.lib.tagClass('author')])

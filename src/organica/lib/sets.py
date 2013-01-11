@@ -1,6 +1,7 @@
 from PyQt4.QtCore import QObject, pyqtSignal, Qt
 
 from organica.utils.lockable import Lockable
+import organica.utils.constants as constants
 
 
 class _SetIterator(object):
@@ -18,9 +19,9 @@ class _SetIterator(object):
 class _Set(QObject, Lockable):
     """Base class for all TagSet and NodeSet. Set allows watching library objects state
     and appearing and disappearing new objects.
-    Monitoring Set elements can be paused to save system resources. When isPaused
-    True, no signals will be emitted by object. Library state will be still monitored
-    and after first change isDirty boolean flag will be set. Once isPaused becomes False,
+    Monitoring Set elements can be paused to save system resources. When isPaused is
+    True, no signals will be emitted by Set object. Library state will be still monitored
+    and isDirty boolean flag will be set after first change. Once isPaused becomes False,
     Set reloads elements by querying database if isDirty is True.
 
     Set holds not Tag or Node objects, but its identities. You should manually
@@ -29,7 +30,7 @@ class _Set(QObject, Lockable):
 
     elementAppeared = pyqtSignal(object)
     elementDisappeared = pyqtSignal(object)
-    elementUpdated = pyqtSignal(object, object)  # first - new element value, second - the old one
+    elementUpdated = pyqtSignal(object)
     resetted = pyqtSignal()
 
     def __init__(self, lib, query):
@@ -84,10 +85,10 @@ class _Set(QObject, Lockable):
                     self.__isPaused = True
                 else:
                     if self.isDirty:
-                        self.fetch()
+                        self._fetch()
                         self.resetted.emit()
                     self.isDirty = False
-                    self.__isPaused = True
+                    self.__isPaused = False
 
     def onResetted(self):
         with self.lock:
@@ -102,7 +103,7 @@ class _Set(QObject, Lockable):
 
         with self.lock:
             if not self.isFetched:
-                self.fetch()
+                self._fetch()
                 self.__isFetched = True
 
     def _fetch(self):
@@ -134,17 +135,19 @@ class _Set(QObject, Lockable):
         """
 
         with self.lock:
-            return self.isFetched and (not self.isPaused or not self.isDirty)
+            return self.isFetched and not self.isPaused
 
 
 class TagSet(_Set):
     def __init__(self, lib, query):
         _Set.__init__(self, lib, query)
-        self.lib.tagCreated.connect(self.onTagCreated, Qt.QueuedConnection)
-        self.lib.tagRemoved.connect(self.onTagRemoved, Qt.QueuedConnection)
-        self.lib.tagUpdated.connect(self.onTagUpdated, Qt.QueuedConnection)
-        self.lib.linkCreated.connect(self.onLinkCreated, Qt.QueuedConnection)
-        self.lib.linkRemoved.connect(self.onLinkRemoved, Qt.QueuedConnection)
+        conn_type = Qt.DirectConnection if constants.disable_set_queued_connections else Qt.QueuedConnection
+
+        self.lib.tagCreated.connect(self.onTagCreated, conn_type)
+        self.lib.tagRemoved.connect(self.onTagRemoved, conn_type)
+        self.lib.tagUpdated.connect(self.onTagUpdated, conn_type)
+        self.lib.linkCreated.connect(self.onLinkCreated, conn_type)
+        self.lib.linkRemoved.connect(self.onLinkRemoved, conn_type)
 
     def _fetch(self):
         with self.lock:
@@ -155,8 +158,8 @@ class TagSet(_Set):
         with self.lock:
             if self.needUpdate:
                 if self.query.passes(new_tag):
-                    self._results.append(new_tag)
-                    self.elementAppeared.emit(new_tag)
+                    self._results.append(new_tag.identity)
+                    self.elementAppeared.emit(new_tag.identity)
             elif not self.isDirty:
                 if self.query.passes(new_tag):
                     self.isDirty = True
@@ -164,28 +167,28 @@ class TagSet(_Set):
     def onTagRemoved(self, removed_tag):
         with self.lock:
             if self.needUpdate:
-                if removed_tag in self._results:
-                    self._results = [x for x in self._results if x != removed_tag]
-                    self.elementDisappeared.emit(removed_tag)
+                if removed_tag.identity in self._results:
+                    self._results = [x for x in self._results if x != removed_tag.identity]
+                    self.elementDisappeared.emit(removed_tag.identity)
             elif not self.isDirty:
-                if removed_tag in self._results:
+                if removed_tag.identity in self._results:
                     self.isDirty = True
 
     def onTagUpdated(self, updated_tag):
         with self.lock:
             if self.needUpdate:
-                if updated_tag in self._results:
+                if updated_tag.identity in self._results:
                     if not self.query.passes(updated_tag):
-                        self._results = [x for x in self._results if x != updated_tag]
-                        self.elementDisappeared.emit(updated_tag)
+                        self._results = [x for x in self._results if x != updated_tag.identity]
+                        self.elementDisappeared.emit(updated_tag.identity)
                     else:
-                        self.elementUpdated.emit(updated_tag)
+                        self.elementUpdated.emit(updated_tag.identity)
                 else:
                     if self.query.passes(updated_tag):
-                        self._results.append(updated_tag)
-                        self.elementAppeared.emit(updated_tag)
+                        self._results.append(updated_tag.identity)
+                        self.elementAppeared.emit(updated_tag.identity)
             elif not self.isDirty:
-                if updated_tag in self._results or self.query.passes(updated_tag):
+                if updated_tag.identity in self._results or self.query.passes(updated_tag):
                     self.isDirty = True
 
     def __onLink(self, node, tag):
@@ -198,42 +201,43 @@ class TagSet(_Set):
         self.__onLink(node, tag)
 
 
-class ObjectSet(_Set):
+class NodeSet(_Set):
     def __init__(self, lib, query):
         _Set.__init__(self, lib, query)
-        self.lib.nodeUpdated.connect(self.onNodeUpdated, Qt.QueuedConnection)
-        self.lib.nodeCreated.connect(self.onNodeCreated, Qt.QueuedConnection)
-        self.lib.nodeRemoved.connect(self.onNodeRemoved, Qt.QueuedConnection)
-        self.lib.linkCreated.connect(self.onLinkCreated, Qt.QueuedConnection)
-        self.lib.linkRemoved.connect(self.onLinkRemoved, Qt.QueuedConnection)
-        self.lib.tagUpdated.connect(self.onTagUpdated, Qt.QueuedConnection)
+        conn_type = Qt.DirectConnection if constants.disable_set_queued_connections else Qt.QueuedConnection
+        self.lib.nodeUpdated.connect(self.onNodeUpdated, conn_type)
+        self.lib.nodeCreated.connect(self.onNodeCreated, conn_type)
+        self.lib.nodeRemoved.connect(self.onNodeRemoved, conn_type)
+        self.lib.linkCreated.connect(self.onLinkCreated, conn_type)
+        self.lib.linkRemoved.connect(self.onLinkRemoved, conn_type)
+        self.lib.tagUpdated.connect(self.onTagUpdated, conn_type)
 
     def _fetch(self):
         with self.lock:
-            self._results = self.lib.objects(self.query)
+            self._results = self.lib.nodes(self.query)
 
     def onNodeUpdated(self, updated_node):
         with self.lock:
             if self.needUpdate:
-                if updated_node in self._results:
+                if updated_node.identity in self._results:
                     if not self.query.passes(updated_node):
-                        self._results = [n for n in self._results if n != updated_node]
-                        self.elementAppeared.emit(updated_node)
+                        self._results = [n for n in self._results if n != updated_node.identity]
+                        self.elementAppeared.emit(updated_node.identity)
                     else:
-                        self.elementUpdated.emit(updated_node)
+                        self.elementUpdated.emit(updated_node.identity)
                 elif self.query.passes(updated_node):
-                    self._results.append(updated_node)
-                    self.elementAppeared.emit(updated_node)
+                    self._results.append(updated_node.identity)
+                    self.elementAppeared.emit(updated_node.identity)
             elif not self.isDirty:
-                if updated_node in self._results or self.query.passes(updated_node):
+                if updated_node.identity in self._results or self.query.passes(updated_node):
                     self.isDirty = True
 
     def onNodeCreated(self, created_node):
         with self.lock:
             if self.needUpdate:
                 if self.query.passes(created_node):
-                    self._results.append(created_node)
-                    self.elementAppeared.emit(created_node)
+                    self._results.append(created_node.identity)
+                    self.elementAppeared.emit(created_node.identity)
             elif not self.isDirty:
                 if self.query.passes(created_node):
                     self.isDirty = True
@@ -241,11 +245,11 @@ class ObjectSet(_Set):
     def onNodeRemoved(self, removed_node):
         with self.lock:
             if self.needUpdate:
-                if removed_node in self._results:
-                    self._results = [n for n in self._results if n != removed_node]
-                    self.elementDisappeared.emit(removed_node)
+                if removed_node.identity in self._results:
+                    self._results = [n for n in self._results if n != removed_node.identity]
+                    self.elementDisappeared.emit(removed_node.identity)
             elif not self.isDirty:
-                if removed_node in self._results:
+                if removed_node.identity in self._results:
                     self.isDirty = True
 
     def onLinkCreated(self, node, tag):
@@ -260,5 +264,6 @@ class ObjectSet(_Set):
     def onTagUpdated(self, updated_tag):
         with self.lock:
             # get nodes this tag linked with
-            for node in self.lib.nodes(linked_with=updated_tag):
+            from organica.lib.filters import NodeQuery
+            for node in self.lib.nodes(NodeQuery(linked_with=updated_tag)):
                 self.onNodeUpdated(node)

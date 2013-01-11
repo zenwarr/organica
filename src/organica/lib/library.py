@@ -11,7 +11,7 @@ import organica.utils.helpers as helpers
 from organica.utils.lockable import Lockable
 from organica.lib.filters import Wildcard, generateSqlCompare, TagQuery, NodeQuery
 from organica.lib.objects import (Node, Tag, TagClass, TagValue, isCorrectIdent, Identity,
-                                  ObjectError)
+                                  ObjectError, get_identity)
 
 
 logger = logging.getLogger(__name__)
@@ -270,9 +270,9 @@ class Library(QObject, Lockable):
         """
 
         with self.lock:
-            if isinstance(tag_class, Identity):
+            if isinstance(tag_class, (Identity, TagClass)):
                 for tclass in self._tagClasses.values():
-                    if tclass.identity == tag_class:
+                    if tclass.identity == get_identity(tag_class):
                         return deepcopy(tclass)
                 else:
                     return None
@@ -353,11 +353,7 @@ class Library(QObject, Lockable):
         with self.lock:
             r = []
             for row in cursor.fetchall():
-                if row[0] in self._tags:
-                    # if we have tag in cache, return it
-                    r.append(deepcopy(self._tags[row[0]]))
-                else:
-                    # otherwise create new tag and encache it
+                if int(row[0]) not in self._tags:
                     tag_class = self.tagClass(Identity(self, int(row[1])))
                     if tag_class is None:
                         logger.log('invalid class_id for tag #{0}'.format(row[0]))
@@ -368,8 +364,8 @@ class Library(QObject, Lockable):
                         logger.log('invalid tag #{0}'.format(row[0]))
                         continue
                     tag.identity = Identity(self, int(row[0]))
-                    self._tags[tag.id] = deepcopy(tag)
-                    r.append(tag)
+                    self._tags[tag.id] = tag
+                r.append(deepcopy(self._tags[int(row[0])]))
             return r
 
     def tags(self, query):
@@ -412,6 +408,7 @@ class Library(QObject, Lockable):
                 tag_class = self.tagClass(tag_class)
 
             try:
+                value = TagValue(value)
                 tag = Tag(tag_class, value)
             except (TypeError, ObjectError):
                 raise TypeError('invalid arguments')
@@ -437,21 +434,25 @@ class Library(QObject, Lockable):
     getOrCreateTag = createTag
 
     def flushTag(self, tag_to_flush):
-        """Flushes tag into database.
+        """Flush tag into database.
         """
+
+        if tag_to_flush.isFlushed and tag_to_flush.lib is not self:
+            raise TypeError('invalid argument: tag_to_flush')
 
         with self.lock:
             old_tag = self.tag(tag_to_flush.identity)
 
             if old_tag is None:
-                return self.createTag(tag_to_flush.tagClass, tag_to_flush.value)
+                tag_to_flush.identity = self.createTag(tag_to_flush.tagClass, \
+                                                       tag_to_flush.value).identity
             else:
                 if old_tag != tag_to_flush:
                     with self.transaction() as c:
                         c.execute('update tags set value = ?, class_id = ? where id = ?',
                                   (tag_to_flush.value.databaseForm(), tag_to_flush.tagClass.id, tag_to_flush.id))
 
-                        if tag_to_flush.tagClass.valueType != old_tag.tagClass.valueType:
+                        if tag_to_flush.tagClass != old_tag.tagClass:
                             c.execute('update links set tag_class_id = ? where tag_id = ?',
                                       (tag_to_flush.tagClass.id, tag_to_flush.id))
 
@@ -466,7 +467,7 @@ class Library(QObject, Lockable):
 
                     self.tagUpdated.emit(deepcopy(tag_to_flush), deepcopy(old_tag))
 
-                    return tag_to_flush
+            return tag_to_flush
 
     def removeTag(self, tag_to_remove, remove_links=False):
         """Remove tag from database. If :remove_links: is True, all links to this Tag will removed,
@@ -474,12 +475,12 @@ class Library(QObject, Lockable):
         Note the difference between removeTag and removeTags - this method only accepts Identity (or Tag).
         """
 
-        with self.lock:
-            if tag_to_remove is None or not tag_to_remove.isFlushed or tag_to_remove.lib is not self:
-                raise TypeError('invalid argument: tag_to_remove')
+        if tag_to_remove is None or not tag_to_remove.isFlushed or tag_to_remove.lib is not self:
+            raise TypeError('invalid argument: tag_to_remove')
 
-            # get actual value of this tag
-            if not self.tag(tag):
+        with self.lock:
+            unmodified_tag = self.tag(tag_to_remove)
+            if not unmodified_tag:
                 raise LibraryError('tag does not exists: #{0}'.format(tag_to_remove.id))
 
             with self.transaction() as c:
@@ -489,14 +490,14 @@ class Library(QObject, Lockable):
                 elif self.nodes(NodeQuery(tags=TagQuery(identity=tag_to_remove))):
                     raise LibraryError('cannot remove tag while there are nodes linked with it')
 
-                c.execute('delete from tags where id = ?', (tag.id, ))
+                c.execute('delete from tags where id = ?', (tag_to_remove.id, ))
 
             # update cache
-            if tag.id in self._tags:
-                self._tags.remove(tag.id)
+            if tag_to_remove.id in self._tags:
+                del self._tags[tag_to_remove.id]
 
             # notify about tag
-            self.tagRemoved.emit(deepcopy(tag_to_remove))
+            self.tagRemoved.emit(deepcopy(unmodified_tag))
 
     def removeTags(self, tag_query, remove_links=False):
         """Remove tags from database.
@@ -509,7 +510,7 @@ class Library(QObject, Lockable):
     def createNode(self, display_name_template, tags=None):
         """Create new node with given display name. Optionally links all tags from sequence.
         Sequence should contains Tag objects and tuples (class or class name, value).
-        Tag objects from sequence will be flushed.
+        Tag objects from sequence will not be changed.
         """
 
         with self.lock:
@@ -533,7 +534,7 @@ class Library(QObject, Lockable):
                         if isinstance(tag, tuple):
                             tag = self.createTag(tag[0], tag[1])
                         else:
-                            tag.flush(self)
+                            self.flushTag(tag)
                         self.createLink(node, tag)
 
             return node
@@ -545,11 +546,12 @@ class Library(QObject, Lockable):
         Note the difference between this method and removeNodes, this method accepts only Identity (or Node).
         """
 
-        with self.lock:
-            if node is None or not node.isFlushed or node.lib is not self:
+        if node_to_remove is None or not node_to_remove.isFlushed or node_to_remove.lib is not self:
                 raise TypeError('invalid argument: node')
 
-            if not self.node(node_to_remove):
+        with self.lock:
+            unmodified_node = self.node(node_to_remove)
+            if not unmodified_node:
                 raise LibraryError('node #{0} does not exists'.format(node_to_remove.id))
 
             with self.transaction() as c:
@@ -563,10 +565,10 @@ class Library(QObject, Lockable):
 
             # update cache
             if node_to_remove.id in self._nodes:
-                del self._nodes[obj.id]
+                del self._nodes[node_to_remove.id]
 
             # notify about node
-            self.nodeRemoved.emit(deepcopy(node_to_remove))
+            self.nodeRemoved.emit(deepcopy(unmodified_node))
 
     def removeNodes(self, node_query, remove_references=False):
         """Remove nodes that match given query.
@@ -612,52 +614,51 @@ class Library(QObject, Lockable):
         """Flush node into database
         """
 
+        if node_to_flush.isFlushed and node_to_flush.lib is not self:
+            raise TypeError('invalid argument: node_to_flush')
+
         with self.lock:
-            unmod_node = self.node(node_to_flush)
-            if not unmod_node:
-                return self.createNode(node_to_flush.displayNameTemplate,
-                                                         node_to_flush.allTags)
+            unmodified_node = self.node(node_to_flush)
+            if not unmodified_node:
+                node_to_flush.identity = self.createNode(node_to_flush.displayNameTemplate,
+                                                         node_to_flush.allTags).identity
+                node_to_flush.setAllTags(self.node(node_to_flush).allTags)
             else:
-                # find links to delete and to create. Flush already linked tags.
-                tagsToUnlink = []
-                tagsToLink = []
-                tagsToFlush = []
-                actualTags = []
-
-                for linked_tag in unmod_node.allTags:
-                    if not node_to_flush.testTag(linked_tag.identity):
-                        tagsToUnlink.append(linked_tag)
-                    else:
-                        tagsToFlush.append(linked_tag)
-
-                for tag in node_to_flush.allTags:
-                    if not tag.isFlushed or not unmod_node.testTag(tag.identity):
-                        tagsToLink.append(tag)
-
                 with self.transaction() as c:
-                    if node_to_flush.displayNameTemplate != unmod_node.displayNameTemplate:
+                    if node_to_flush.displayNameTemplate != unmodified_node.displayNameTemplate:
                         c.execute('update nodes set display_name = ? where id = ?',
-                                (node_to_flush.displayNameTemplate, node_to_flush.id))
-
-                        self.nodeUpdated.emit(deepcopy(unmod_node), deepcopy(node_to_flush))
+                                  (node_to_flush.displayNameTemplate, node_to_flush.id))
 
                         if node_to_flush.id in self._nodes:
                             self._nodes[node_to_flush.id].displayNameTemplate = \
                                         node_to_flush.displayNameTemplate
 
-                    for tag in tagsToUnlink:
-                        self.removeLink(node_to_flush, tag)
+                        self.nodeUpdated.emit(self.node(node_to_flush), deepcopy(unmodified_node))
 
-                    for tag in tagsToLink:
-                        actualTags.append(tag.flush(self))
-                        self.createLink(node_to_flush, tag)
+                    actual_tags = []
 
-                    for tag in tagsToFlush:
-                        actualTags.append(tag.flush(self))
+                    unmodified_tags = unmodified_node.allTags
+                    node_to_flush_tags = node_to_flush.allTags
 
-                actualNode = Node(node_to_flush.displayNameTemplate, actualTags)
-                actualNode.identity = node_to_flush.identity
-                return actualNode
+                    for tag in node_to_flush_tags:
+                        if tag.isFlushed:
+                            if tag not in unmodified_tags:
+                                self.flushTag(tag)
+                                self.createLink(node_to_flush, tag)
+                            actual_tags.append(tag)
+                        else:
+                            self.flushTag(tag)
+                            if tag not in unmodified_tags:
+                                self.createLink(node_to_flush, tag)
+                            actual_tags.append(tag)
+
+                    for tag in unmodified_tags:
+                        if tag not in node_to_flush_tags:
+                            self.removeLink(node_to_flush, tag)
+
+                    node_to_flush.setAllTags(actual_tags)
+
+            return node_to_flush
 
     def createLink(self, node, tag):
         """Create link between node and tag.
@@ -682,12 +683,12 @@ class Library(QObject, Lockable):
                           (node.id, tag.id, tag.tagClass.id))
 
             node.setAllTags(node.allTags + [tag])
-            self._nodes[node.id] = deepcopy(node)
+            self._nodes[node.id] = node
 
             self.linkCreated.emit(deepcopy(node), deepcopy(tag))
 
     def removeLink(self, node, tag):
-        """Remove link between node and tag. Silently returns if no link between them exist.
+        """Remove link between node and tag.
         """
 
         if node is None or tag is None or not node.isFlushed or not tag.isFlushed or \
@@ -709,7 +710,7 @@ class Library(QObject, Lockable):
                           (node.id, tag.id))
 
             node.setAllTags([t for t in node.allTags if t.identity != tag.identity])
-            self._nodes[node.id] = deepcopy(node)
+            self._nodes[node.id] = node
 
             self.linkRemoved.emit(deepcopy(node), deepcopy(tag))
 
@@ -719,13 +720,11 @@ class Library(QObject, Lockable):
 
         r = []
         for row in cursor.fetchall():
-            if int(row[0]) in self._nodes:
-                r.append(deepcopy(self._nodes[row[0]]))
-            else:
+            if int(row[0]) not in self._nodes:
                 node = Node(row[1])
                 node.identity = Identity(self, row[0])
                 self._nodes[node.id] = node
-                r.append(deepcopy(node))
+            r.append(deepcopy(self._nodes[int(row[0])]))
         return r
 
     def remove(self, lib_object):
@@ -799,7 +798,14 @@ class Library(QObject, Lockable):
 
     def _connect(self, filename):
         def strict_nocase_collation(left, right):
-            return left.casefold() == right.casefold()
+            l = left.casefold()
+            r = right.casefold()
+            if l == r:
+                return 0
+            elif l < r:
+                return 1
+            else:
+                return -1
 
         self._conn = sqlite3.connect(filename, isolation_level=None)
         self._conn.create_collation('strict_nocase', strict_nocase_collation)

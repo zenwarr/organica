@@ -21,6 +21,9 @@ class FormatStringToken:
         self.value = ''
         self.params = {}
 
+    def getParam(self, key, default=None):
+        return self.params[key][0] if key in self.params else default
+
 
 class _FormatStringParser:
     """Some object {tag_name: max_items = '', ellipsis = ''}
@@ -58,8 +61,9 @@ class _FormatStringParser:
             self.__tail = self.__head
             if self.__getChar() == '{':
                 self.__ctoken.isBlock = True
-                self.__eatWhitespace()
                 self.__ctoken.start = self.__head
+                self.__head += 1
+                self.__eatWhitespace()
                 self.__ctoken.value = self.__getIdent(is_block_name=True)
                 if not self.__ctoken.value:
                     raise ParseError('block name expected in format string "{0}" at position {1}' \
@@ -74,6 +78,7 @@ class _FormatStringParser:
                 if self.__getChar() != '}':
                     raise ParseError('end of block expected in format string "{0}" at position {1}' \
                                      .format(self.text, self.__head))
+                self.__head += 1
 
                 self.__ctoken.length = self.__head - self.__ctoken.start
             else:
@@ -94,9 +99,9 @@ class _FormatStringParser:
         for token in tokens:
             if not token.isBlock:
                 # but it can differ from real user input (as it could escape another chars)
-                built.append(helpers.escape(token.value, '{\\'))
+                built += (helpers.escape(token.value, '{\\'))
             else:
-                built += '{' + token.name
+                built += '{' + token.value
                 if token.params:
                     built += ': '
                     need_comma = False
@@ -111,11 +116,11 @@ class _FormatStringParser:
                         if param_value is None:
                             built += param_name
                         elif isinstance(param_value, str):
-                            built += '{0} = {2}{1}{2}'.format(param_name,
+                            built += '{0}={2}{1}{2}'.format(param_name,
                                                               helpers.escape(param_value, '"\\'),
                                                               quote_type)
                         elif isinstance(param_value, int):
-                            built += '{0} = {1}'.format(param_name, param_value)
+                            built += '{0}={1}'.format(param_name, param_value)
                         else:
                             raise TypeError('unexpected type for parameter value: {0}' \
                                             .format(type(param_value)))
@@ -126,7 +131,7 @@ class _FormatStringParser:
         return self.text[self.__head] if self.__head < len(self.text) else '\0'
 
     def __isEnd(self):
-        return len(self.text) >= self.__head
+        return self.__head >= len(self.text)
 
     def __getIdent(self, is_block_name=False):
         self.__eatWhitespace()
@@ -135,9 +140,9 @@ class _FormatStringParser:
             self.__head += 1
             while not self.__isEnd():
                 c = self.__getChar()
-                self.__head += 1
-                if c not in string.ascii_letters and c not in self.digits and c != '_':
+                if c not in string.ascii_letters and c not in string.digits and c != '_':
                     break
+                self.__head += 1
             return self.text[self.__tail:self.__head]
         else:
             return None
@@ -165,9 +170,9 @@ class _FormatStringParser:
             self.__head += 1
             while not self.__isEnd():
                 c = self.__getChar()
-                self.__head += 1
                 if not (c.isalpha() or c in string.digits or c == '_'):
                     break
+                self.__head += 1
             return (self.text[self.__tail:self.__head], '')
         else:
             return None
@@ -187,7 +192,6 @@ class _FormatStringParser:
                              .format(self.text, self.__tail))
         self.__eatWhitespace()
 
-        value = None
         if self.__getChar() == '=':
             self.__head += 1
             self.__eatWhitespace()
@@ -195,7 +199,9 @@ class _FormatStringParser:
             if not value:
                 raise ParseError('parameter value expected in format string "{0}" ' \
                                  + 'at position {1}'.format(self.text, self.__tail))
-        return (name, value[0], value[1])
+            return (name, value[0], value[1])
+        else:
+            return (name, None, None)
 
     def __getParams(self):
         params = {}
@@ -209,6 +215,7 @@ class _FormatStringParser:
             self.__eatWhitespace()
             if self.__getChar() != ',':
                 break
+            self.__head += 1
         return params
 
     @staticmethod
@@ -226,7 +233,7 @@ class FormatString:
     and having same name as block. Parameters are used to set format options.
 
     If object has more than one tag with specified name, values will be formatted in
-    special way according to values of max_items, separator, end and sort parameters.
+    special way according to values of max, separator, end and sort parameters.
 
     If tag value type is:
         TEXT: stored text is used
@@ -243,7 +250,7 @@ class FormatString:
         none
             Specify value to use when tag value type is None. Default value is ''
 
-        max_items
+        max
             When multiple tags found, determines maximal number of tags to be used
             for joining. Default value is 7. If value is 0, list will not be limited.
 
@@ -253,7 +260,7 @@ class FormatString:
 
         end
             When multiple tags found, determine text that will be displayed at three
-            end of generated text when found tags count is greater than max_items.
+            end of generated text when found tags count is greater than 'max' value.
             Default is ' ...'
 
         sort
@@ -286,11 +293,11 @@ class FormatString:
     """
 
     custom_blocks = {
-        '@': (lambda obj, token: obj.displayName),
-        '@name': (lambda obj, token: obj.displayName)
+        '@': (lambda obj, token: [obj.displayNameTemplate]),
+        '@name': (lambda obj, token: [obj.displayNameTemplate])
     }
 
-    __known_params = ['default', 'none', 'max_items', 'sort', 'separator',
+    __known_params = ['default', 'none', 'max', 'sort', 'separator',
                       'end', 'locator']
 
     def __init__(self, template=''):
@@ -345,7 +352,7 @@ class FormatString:
             return str(tag_value.number)
         elif tag_value.valueType == TagValue.TYPE_LOCATOR:
             url = tag_value.locator.url
-            mode = block.params['locator'] if 'locator' in block.params else 'url'
+            mode = block.params.get('locator', 'url')
             mode = mode.lower()
             if mode == 'url':
                 return url.toString()
@@ -368,7 +375,7 @@ class FormatString:
             else:
                 return ''
         elif tag_value.valueType == TagValue.TYPE_NONE:
-            return '' if 'none' not in block.params else block.params['none']
+            return block.params.get('none', '')
         else:
             return ''
 
@@ -380,7 +387,7 @@ class FormatString:
         formatted = ''
         for token in self.__tokens:
             if not token.isBlock:
-                formatted.append(token.value)
+                formatted = formatted + token.value
             else:
                 # find tag with this name first
                 values = None
@@ -389,45 +396,43 @@ class FormatString:
                         raise ParseError('unknown special block: {0}'.format(token.value))
                     values = self.custom_blocks[token.value](obj, token)
                 else:
-                    tags = obj.tags(TagQuery(tagClass=token.value))
+                    tags = obj.tags(TagQuery(tag_class=token.value))
                     if tags:
-                        values = [self.__tagValue(t.value) for t in tags]
+                        values = [self.__tagValue(t.value, token) for t in tags]
 
-                    # find unknown parameters
+                    # find unknown parameters for standard blocks
                     for param in token.params.keys():
                         if param not in FormatString.__known_params:
                             logger.warn('unknown parameter: {0} in "{1}"'.format(param, self.template))
 
                 if not values:
-                    if 'default' in token.params and token.params['default']:
-                        values.append(token.params['default'])
-                    else:
-                        values = ['']
+                    values = [token.getParam('default', '')]
 
-                sort = token.params.get('sort') or 'asc'
+                sort = token.getParam('sort', 'asc')
                 if sort.lower() in ('asc', 'desc'):
-                    values = sorted(values, key=str.lower, reverse=(sort.lower() == 'asc'))
+                    values = sorted(values, key=str.lower, reverse=(sort.lower() == 'desc'))
                 else:
                     raise ParseError('only allowed values for "sort" parameter are "asc" and "desc"')
 
                 if len(values) == 1:
-                    formatted.append(str(values))
+                    formatted = formatted + str(values[0])
                 else:
                     overcount = False
-                    max_items = token.params['max_items'] or 7
-                    if not isinstance(max_items, int):
-                        raise ParseError('number expected for max_items parameter')
+                    try:
+                        max_items = int(token.getParam('max', 7))
+                    except ValueError:
+                        raise ParseError('number excepted for "max" parameter value')
 
-                    if max_items > 0 and len(values) > max_items:
+                    if 0 < max_items < len(values):
                         values = values[:max_items]
                         overcount = True
 
-                    end = str(token.params.get('end') or '...')
-                    separator = str(token.params.get('separator') or ', ')
+                    end = str(token.getParam('end', '...'))
+                    separator = str(token.getParam('separator', ', '))
 
-                    formatted.append(separator.join(values))
+                    formatted = formatted + separator.join(values)
                     if overcount:
-                        formatted.append(end)
+                        formatted = formatted + end
 
         return formatted
 

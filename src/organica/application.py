@@ -1,15 +1,23 @@
-import os, sys, logging, argparse, threading
+import os
+import sys
+import logging
+import argparse
+import threading
+
 from organica.utils.settings import Settings
-from organica.gui.actions import CommandManager
+from organica.gui.actions import globalCommandManager
 import organica.utils.constants as constants
 from organica.gui.mainwin import MainWindow
-from PyQt4 import QtCore, QtGui
-from PyQt4.QtGui import QWidget
+from PyQt4 import QtGui
+
+
 logger = logging.getLogger(__name__)
 
+
 class InitError(Exception):
-    def __init__(self, desc = ''):
+    def __init__(self, desc=''):
         Exception.__init__(self, desc)
+
 
 class Application(QtGui.QApplication):
     def __init__(self):
@@ -39,7 +47,7 @@ class Application(QtGui.QApplication):
                     logger.error('application is running in portable mode, but has no access to data directory %s',
                                  data_dir)
                     raise InitError()
-            elif not os.access(data_dir, os.R_OK|os.W_OK):
+            elif not os.access(data_dir, os.R_OK | os.W_OK):
                 # we should have at least read-write access to data directory.
                 logger.error('application is running in portable mode, but has no enough rights for accessing data directory %s',
                              data_dir)
@@ -63,18 +71,18 @@ class Application(QtGui.QApplication):
 
         self.__registerSettings()
 
-        CommandManager().loadShortcuts()
+        globalCommandManager().loadShortcutScheme()
 
         # initialize argument parser. We can use it later, when another instance delivers args to us
-        self.argparser = argparse.ArgumentParser(prog = self.applicationName())
+        self.argparser = argparse.ArgumentParser(prog=self.applicationName())
         self.argparser.add_argument('-v', '--version',
-                                action = 'version',
-                                version = 'Organica ' + self.applicationVersion(),
-                                help = 'show application version and exit')
-        self.argparser.add_argument('files', nargs = '?')
-        self.argparser.add_argument('--reset-settings', dest = 'reset_settings',
-                                    action = 'store_true',
-                                    help = 'reset application settings to defaults')
+                                action='version',
+                                version='Organica ' + self.applicationVersion(),
+                                help='show application version and exit')
+        self.argparser.add_argument('files', nargs='?')
+        self.argparser.add_argument('--reset-settings', dest='reset_settings',
+                                    action='store_true',
+                                    help='reset application settings to defaults')
 
     def startUp(self):
         # parse arguments
@@ -97,7 +105,7 @@ class Application(QtGui.QApplication):
         self.mainWindow.show()
 
     def shutdown(self):
-        CommandManager().saveShortcuts()
+        globalCommandManager().saveShortcutScheme()
         Settings().save()
         logging.shutdown()
 

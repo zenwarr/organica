@@ -46,8 +46,8 @@ class TestFilters(unittest.TestCase):
         self.assertEqual(f.generateSqlWhere(), "id = {0}".format(author_carrol.id))
 
         f = TagQuery(number=page_count.value.number)
-        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = {1}".format(TagValue.TYPE_NUMBER,
-                         page_count.value.number))
+        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = {1}" \
+                         .format(TagValue.TYPE_NUMBER, page_count.value.number))
         self.assertTrue(page_count.passes(f))
         self.assertFalse(author_carrol.passes(f))
         page_count.value.number = 1000
@@ -127,7 +127,7 @@ class TestFilters(unittest.TestCase):
 
         f = TagQuery(node_ref=Identity())
         self.assertFalse(tag_obj1.passes(f))
-        self.assertEqual(f.generateSqlWhere(), "1 = 2")
+        self.assertEqual(f.qeval(), 0)
 
         noneTag = Tag(lib.createTagClass('none'), None)
         f = TagQuery(none=None)
@@ -149,7 +149,6 @@ class TestFilters(unittest.TestCase):
         f = TagQuery(unused=None)
         self.assertEqual(f.generateSqlWhere(), "id not in (select distinct tag_id from links)")
         self.assertFalse(author_carrol.passes(f))
-        author_carrol.flush(lib)
         obj.unlink(author_carrol.identity)
         self.assertFalse(author_carrol.passes(f))
         obj.flush()
@@ -159,7 +158,7 @@ class TestFilters(unittest.TestCase):
         author_shakespeare.flush(lib)
         self.assertTrue(author_shakespeare.passes(f))  # tag became flushed
         obj1.link(author_shakespeare)
-        self.assertTrue(author_shakespeare.passes(f))  # tag is linked to object, but it is not
+        self.assertTrue(author_shakespeare.passes(f))  # tag is linked to object, but this fact is not
                                                        # reflected in database yet
         obj1.flush(lib)
         self.assertFalse(author_shakespeare.passes(f))
@@ -184,9 +183,7 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(author_carrol.passes(f))
 
         f = TagQuery(linked_with=obj1, tag_class='author')
-        self.assertFalse(author_carrol == author_shakespeare)
-        self.assertEqual(f.generateSqlWhere(), ("(id in (select tag_id from links where node_id = {0})) and " \
-                         + "(class_id in (select id from tag_classes where name = 'author'))").format(obj1.id))
+        self.assertFalse(author_carrol.id == author_shakespeare.id)
         self.assertFalse(lib.node(obj1).testTag(author_carrol))
         self.assertFalse(author_carrol.passes(f))
         self.assertTrue(author_shakespeare.passes(f))
@@ -224,21 +221,21 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(obj1.passes(f))
 
         obj_alice = Node('Alice in Wonderland')
-        obj_alice.link('author', 'Lewis Carrol')
-        obj_alice.link('gentre', 'Fiction')
-        obj_alice.link('year', '1888')
+        obj_alice.link(lib.createTagClass('author'), 'Lewis Carrol')
+        obj_alice.link(lib.createTagClass('gentre'), 'Fiction')
+        obj_alice.link(lib.createTagClass('year'), '1888')
         obj_alice.flush(lib)
 
         obj_unknown_book = Node('Untitled')
         obj_unknown_book.flush(lib)
 
         obj_another_book = Node('Another book')
-        obj_another_book.link('author', 'Another author')
+        obj_another_book.link(lib.createTagClass('author'), 'Another author')
         obj_another_book.flush(lib)
 
         obj_unflushed = Node('Unflushed')
 
-        f = NodeQuery().tags(TagQuery().identity(author_carrol))
+        f = NodeQuery(tags=TagQuery(identity=author_carrol))
         self.assertEqual(f.generateSqlWhere(), ("id in (select node_id " \
                          + "from links where tag_id in (select id from tags " \
                          + "where id = {0}))").format(author_carrol.id))
@@ -246,9 +243,9 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(obj_unknown_book.passes(f))
         self.assertFalse(obj_another_book.passes(f))
 
-        f = NodeQuery().withoutTags()
-        self.assertEqual(f.generateSqlWhere(), "id not id (select distinct node_id from links)")
+        f = NodeQuery(no_tags=None)
+        self.assertEqual(f.generateSqlWhere(), "id not in (select distinct node_id from links)")
         self.assertFalse(obj_alice.passes(f))
         self.assertFalse(obj_another_book.passes(f))
-        self.assertFalse(obj_unknown_book.passes(f))
-        self.assertFalse(obj_unflushed.passes(f))
+        self.assertTrue(obj_unknown_book.passes(f))
+        self.assertTrue(obj_unflushed.passes(f))

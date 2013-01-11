@@ -256,9 +256,9 @@ class _Query(object):
     """Base class for TagQuery and ObjectQuery classes.
     """
 
-    def __init__(self, filter):
+    def __init__(self, m_filter):
         super().__init__()
-        self.__filter = filter
+        self.__filter = m_filter or _Filter_Disabled()
         self.__limit = self.__offset = 0
 
     def filter(self, filter_object):
@@ -326,7 +326,7 @@ class _Query(object):
             return q
 
     def passes(self, lib_object):
-        return self.__filter.passes(lib_object) if self.__filter else (lib_object is not None)
+        return self.__filter.passes(lib_object)
 
     def generateSqlWhere(self):
         if not self.__filter:
@@ -378,10 +378,10 @@ class _Tag_Class(object):
 
 class _Tag_Identity(object):
     def __init__(self, identity):
-        self.identity = identity
+        self.identity = get_identity(identity)
 
     def passes(self, tag):
-        return tag is not None and tag.identity == get_identity(self.identity)
+        return tag is not None and self.identity == get_identity(tag)
 
     def generateSql(self):
         if self.identity.isFlushed:
@@ -630,10 +630,10 @@ class _Node_DisplayName(object):
 
 class _Node_Identity(object):
     def __init__(self, obj):
-        self.identity = obj
+        self.identity = get_identity(obj)
 
     def passes(self, obj):
-        return obj is not None and get_identity(self.identity) == obj
+        return obj is not None and self.identity == get_identity(obj)
 
     def generateSql(self):
         if self.identity.isFlushed:
@@ -698,6 +698,7 @@ class NodeQuery(_Query):
         'display_name': _Node_DisplayName,
         'identity': _Node_Identity,
         'tags': _Node_Tags,
+        'linked_with': _Node_Tags
     }
 
     def __getFilter(self, **kwargs):

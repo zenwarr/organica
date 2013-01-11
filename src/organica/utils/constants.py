@@ -14,7 +14,7 @@ app_dir = None
 Indicates that application is running in portable mode. While running in
 portable mode, application should avoid from any changes in system.
 """
-is_portable = None
+is_portable = False
 
 """
 Data directory is a special folder where application settings and other
@@ -29,3 +29,8 @@ Thread in context of which live all gui objects. Application code should
 avoid manipulating gui from other threads.
 """
 gui_thread = None
+
+"""
+Use Qt.DirectConnection instead of Qt.QueuedConnection in sets.Set classes.
+"""
+disable_set_queued_connections = False

@@ -27,6 +27,15 @@ class TestTagClass(unittest.TestCase):
         self.assertEqual(tclass.valueType, TagValue.TYPE_TEXT)
         self.assertEqual(tclass.hidden, False)
 
+        self.assertTrue(lib.tagClass('new_class'))
+        self.assertEqual(tclass, lib.tagClass('new_class'))
+
+        tclass.remove()
+
+        self.assertFalse(lib.tagClass('new_class'))
+        self.assertFalse(tclass.isFlushed)
+        self.assertEqual(tclass.name, 'new_class')
+
 
 class TestTag(unittest.TestCase):
     def test(self):
@@ -42,6 +51,12 @@ class TestTag(unittest.TestCase):
         self.assertTrue(tag.passes(tag))
         self.assertFalse(tag.passes(Tag()))
 
+        tag_ident = tag.identity
+        tag.remove()
+
+        self.assertFalse(lib.tag(tag_ident))
+        self.assertFalse(tag.isFlushed)
+
 
 class TestNode(unittest.TestCase):
     def test(self):
@@ -51,18 +66,22 @@ class TestNode(unittest.TestCase):
 
         node = Node('some_book', (Tag(author_class, 'Lewis Carrol'), Tag(page_count_class, 128)))
         self.assertEqual(node.displayNameTemplate, 'some_book')
-        self.assertTrue(len(node.allTags), 2)
-        anode = node.flush(lib)
+        self.assertEqual(len(node.allTags), 2)
+        node.flush(lib)
+        self.assertEqual(len(node.allTags), 2)
 
-        self.assertTrue(anode.isFlushed)
-        self.assertTrue(Tag(author_class, 'Lewis Carrol') in anode.allTags)
-        self.assertTrue(Tag(page_count_class, 128) in anode.allTags)
-        self.assertEqual(len(anode.allTags), 2)
+        self.assertTrue(node.isFlushed)
+        self.assertTrue(Tag(author_class, 'Lewis Carrol') in node.allTags)
+        self.assertTrue(Tag(page_count_class, 128) in node.allTags)
+        self.assertEqual(len(node.allTags), 2)
 
         year_class = lib.createTagClass('year', TagValue.TYPE_NUMBER)
-        anode.link(Tag(year_class, 1855))
-        self.assertTrue(Tag(year_class, 1855) in anode.allTags)
-        anode = anode.flush()
+        node.link(year_class, 1855)
+        self.assertTrue(Tag(year_class, 1855) in node.allTags)
+        self.assertFalse(Tag(year_class, 1855) in lib.node(node).allTags)
+        self.assertEqual(len(node.allTags), 3)
+        node.flush()
 
-        self.assertEqual(len(anode.allTags), 3)
-        self.assertTrue(Tag(year_class, 1855) in anode.allTags)
+        self.assertEqual(len(node.allTags), 3)
+        self.assertTrue(Tag(year_class, 1855) in node.allTags)
+        self.assertTrue(Tag(year_class, 1855) in lib.node(node).allTags)
