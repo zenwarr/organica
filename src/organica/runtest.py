@@ -6,25 +6,26 @@ import organica.tests.formatstring
 import organica.tests.objects
 import organica.tests.filters
 import organica.tests.sets
+import organica.tests.extend
+import organica.tests.operations
+import organica.tests.tagsmodel
 
 
 def run():
     constants.disable_set_queued_connections = True
 
-    # suite = unittest.TestLoader().loadTestsFromModule(organica.tests.wildcard)
-    # unittest.TextTestRunner().run(suite)
+    module_list = ( \
+                    #organica.tests.wildcard,
+                    #organica.tests.objects,
+                    #organica.tests.filters,
+                    #organica.tests.formatstring,
+                    #organica.tests.library,
+                    #organica.tests.sets,
+                    #organica.tests.extend,
+                    #organica.tests.operations,
+                    organica.tests.tagsmodel,
+                   )
 
-    # suite = unittest.TestLoader().loadTestsFromModule(organica.tests.objects)
-    # unittest.TextTestRunner().run(suite)
-
-    # suite = unittest.TestLoader().loadTestsFromModule(organica.tests.filters)
-    # unittest.TextTestRunner().run(suite)
-
-    # suite = unittest.TestLoader().loadTestsFromModule(organica.tests.formatstring)
-    # unittest.TextTestRunner().run(suite)
-
-    # suite = unittest.TestLoader().loadTestsFromModule(organica.tests.library)
-    # unittest.TextTestRunner().run(suite)
-
-    suite = unittest.TestLoader().loadTestsFromModule(organica.tests.sets)
-    unittest.TextTestRunner().run(suite)
+    for module in module_list:
+        suite = unittest.TestLoader().loadTestsFromModule(module)
+        unittest.TextTestRunner().run(suite)

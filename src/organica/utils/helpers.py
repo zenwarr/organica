@@ -1,39 +1,3 @@
-class ObjectProxyError(Exception):
-    def __init__(self):
-        super().__init__('no target for object proxy')
-
-
-class ObjectProxy:
-    """
-    Helper class to easy creation of proxy objects
-    """
-    __target = None
-
-    @property
-    def target(self):
-        return self.__target
-
-    @target.setter
-    def target(self, value):
-        self.__target = value
-
-    def __check(self):
-        if not self.__target:
-            raise ObjectProxyError()
-
-    def __getattr__(self, name):
-        self.__check()
-        return getattr(self.target, name)
-
-    def __setattr__(self, name, value):
-        self.__check()
-        setattr(self.target, name, value)
-
-    def __delattr__(self, name):
-        self.__check()
-        delattr(self.target, name)
-
-
 def each(iterable, pred):
     if pred is None or not callable(pred):
         raise TypeError('invalid predicate')
@@ -51,13 +15,3 @@ def escape(text, need_escape):
         escaped = escaped + ('\\{0}'.format(c) if c in need_escape and not escaping else c)
         escaping = not escaping and c == '\\'
     return escaped
-
-def contains(iterable, predicate):
-    for x in iterable:
-        if callable(predicate):
-            if predicate(x):
-                return True
-        elif predicate == x:
-            return True
-    else:
-        return False

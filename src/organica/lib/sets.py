@@ -1,19 +1,9 @@
+from copy import copy
+
 from PyQt4.QtCore import QObject, pyqtSignal, Qt
 
 from organica.utils.lockable import Lockable
 import organica.utils.constants as constants
-
-
-class _SetIterator(object):
-    def __init__(self, target_set):
-        self.__set = target_set
-        self.__current = 0
-
-    def next(self):
-        if self.__set and self.__current < len(self.__set):
-            raise StopIteration()
-        self.__current += 1
-        return self.__set[self.__current - 1]
 
 
 class _Set(QObject, Lockable):
@@ -36,7 +26,7 @@ class _Set(QObject, Lockable):
     def __init__(self, lib, query):
         QObject.__init__(self)
         Lockable.__init__(self)
-        self.__query = query
+        self._query = query
         self._results = []
         self.__isFetched = False
         self.__lib = lib
@@ -65,7 +55,7 @@ class _Set(QObject, Lockable):
         """Query this Set using to fetch results"""
 
         with self.lock:
-            return self.__query
+            return self._query
 
     @property
     def isPaused(self):
@@ -102,7 +92,7 @@ class _Set(QObject, Lockable):
         """Ensures that results are fetched from database."""
 
         with self.lock:
-            if not self.isFetched:
+            if not self.__isFetched:
                 self._fetch()
                 self.__isFetched = True
 
@@ -126,9 +116,6 @@ class _Set(QObject, Lockable):
             self.ensureFetched()
             return value in self._results
 
-    def __iter__(self):
-        return _SetIterator(self)
-
     @property
     def needUpdate(self):
         """Check if Set should update result list.
@@ -143,17 +130,25 @@ class TagSet(_Set):
         _Set.__init__(self, lib, query)
         conn_type = Qt.DirectConnection if constants.disable_set_queued_connections else Qt.QueuedConnection
 
-        self.lib.tagCreated.connect(self.onTagCreated, conn_type)
-        self.lib.tagRemoved.connect(self.onTagRemoved, conn_type)
-        self.lib.tagUpdated.connect(self.onTagUpdated, conn_type)
-        self.lib.linkCreated.connect(self.onLinkCreated, conn_type)
-        self.lib.linkRemoved.connect(self.onLinkRemoved, conn_type)
+        if self.lib is not None:
+            self.lib.tagCreated.connect(self.__onTagCreated, conn_type)
+            self.lib.tagRemoved.connect(self.__onTagRemoved, conn_type)
+            self.lib.tagUpdated.connect(self.__onTagUpdated, conn_type)
+            self.lib.linkCreated.connect(self.__onLinkCreated, conn_type)
+            self.lib.linkRemoved.connect(self.__onLinkRemoved, conn_type)
+
+    @property
+    def allTags(self):
+        with self.lock:
+            self.ensureFetched()
+            return copy(self._results)
 
     def _fetch(self):
         with self.lock:
-            self._results = self.lib.tags(self.query)
+            if self.lib is not None:
+                self._results = [x.identity for x in self.lib.tags(self._query)]
 
-    def onTagCreated(self, new_tag):
+    def __onTagCreated(self, new_tag):
         # when tag is created it can appear in set
         with self.lock:
             if self.needUpdate:
@@ -164,7 +159,7 @@ class TagSet(_Set):
                 if self.query.passes(new_tag):
                     self.isDirty = True
 
-    def onTagRemoved(self, removed_tag):
+    def __onTagRemoved(self, removed_tag):
         with self.lock:
             if self.needUpdate:
                 if removed_tag.identity in self._results:
@@ -174,7 +169,7 @@ class TagSet(_Set):
                 if removed_tag.identity in self._results:
                     self.isDirty = True
 
-    def onTagUpdated(self, updated_tag):
+    def __onTagUpdated(self, updated_tag):
         with self.lock:
             if self.needUpdate:
                 if updated_tag.identity in self._results:
@@ -192,31 +187,40 @@ class TagSet(_Set):
                     self.isDirty = True
 
     def __onLink(self, node, tag):
-        self.onTagUpdated(tag)
+        self.__onTagUpdated(tag)
 
-    def onLinkCreated(self, node, tag):
+    def __onLinkCreated(self, node, tag):
         self.__onLink(node, tag)
 
-    def onLinkRemoved(self, node, tag):
+    def __onLinkRemoved(self, node, tag):
         self.__onLink(node, tag)
 
 
 class NodeSet(_Set):
     def __init__(self, lib, query):
         _Set.__init__(self, lib, query)
-        conn_type = Qt.DirectConnection if constants.disable_set_queued_connections else Qt.QueuedConnection
-        self.lib.nodeUpdated.connect(self.onNodeUpdated, conn_type)
-        self.lib.nodeCreated.connect(self.onNodeCreated, conn_type)
-        self.lib.nodeRemoved.connect(self.onNodeRemoved, conn_type)
-        self.lib.linkCreated.connect(self.onLinkCreated, conn_type)
-        self.lib.linkRemoved.connect(self.onLinkRemoved, conn_type)
-        self.lib.tagUpdated.connect(self.onTagUpdated, conn_type)
+
+        if self.lib is not None:
+            conn_type = Qt.DirectConnection if constants.disable_set_queued_connections else Qt.QueuedConnection
+            self.lib.nodeUpdated.connect(self.__onNodeUpdated, conn_type)
+            self.lib.nodeCreated.connect(self.__onNodeCreated, conn_type)
+            self.lib.nodeRemoved.connect(self.__onNodeRemoved, conn_type)
+            self.lib.linkCreated.connect(self.__onLinkCreated, conn_type)
+            self.lib.linkRemoved.connect(self.__onLinkRemoved, conn_type)
+            self.lib.tagUpdated.connect(self.__onTagUpdated, conn_type)
+
+    @property
+    def allNodes(self):
+        with self.lock:
+            self.ensureFetched()
+            return copy(self._results)
 
     def _fetch(self):
         with self.lock:
-            self._results = self.lib.nodes(self.query)
+            if self.lib is not None:
+                self._results = [x.identity for x in self.lib.nodes(self._query)]
 
-    def onNodeUpdated(self, updated_node):
+    def __onNodeUpdated(self, updated_node):
         with self.lock:
             if self.needUpdate:
                 if updated_node.identity in self._results:
@@ -232,7 +236,7 @@ class NodeSet(_Set):
                 if updated_node.identity in self._results or self.query.passes(updated_node):
                     self.isDirty = True
 
-    def onNodeCreated(self, created_node):
+    def __onNodeCreated(self, created_node):
         with self.lock:
             if self.needUpdate:
                 if self.query.passes(created_node):
@@ -242,7 +246,7 @@ class NodeSet(_Set):
                 if self.query.passes(created_node):
                     self.isDirty = True
 
-    def onNodeRemoved(self, removed_node):
+    def __onNodeRemoved(self, removed_node):
         with self.lock:
             if self.needUpdate:
                 if removed_node.identity in self._results:
@@ -252,18 +256,18 @@ class NodeSet(_Set):
                 if removed_node.identity in self._results:
                     self.isDirty = True
 
-    def onLinkCreated(self, node, tag):
+    def __onLinkCreated(self, node, tag):
         self.__onLink(node, tag)
 
-    def onLinkRemoved(self, node, tag):
+    def __onLinkRemoved(self, node, tag):
         self.__onLink(node, tag)
 
     def __onLink(self, node, tag):
-        self.onNodeUpdated(node)
+        self.__onNodeUpdated(node)
 
-    def onTagUpdated(self, updated_tag):
+    def __onTagUpdated(self, updated_tag):
         with self.lock:
             # get nodes this tag linked with
             from organica.lib.filters import NodeQuery
             for node in self.lib.nodes(NodeQuery(linked_with=updated_tag)):
-                self.onNodeUpdated(node)
+                self.__onNodeUpdated(node)

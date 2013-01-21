@@ -69,7 +69,7 @@ class LocalStorage(QObject):
             with open(config_file, 'rt') as cf:
                 json.load(cf)
         else:
-            with open(config_file, 'wt') as cf:
+            with open(config_file, 'w+t') as cf:
                 json.dump(stor.__config, ensure_ascii = False, indent = 4)
 
         lib.setMeta('storage_use')
@@ -80,7 +80,7 @@ class LocalStorage(QObject):
     def saveConfig(self):
         config_file = os.path.join(self.__rootDir, 'storage.conf')
         try:
-            with open(config_file, 'wt') as cf:
+            with open(config_file, 'w+t') as cf:
                 json.dump(config_file, ensure_ascii = False, indent = 4)
         except OSError as err:
             raise StorageError('failed to save configuration in {0}'.format(config_file))

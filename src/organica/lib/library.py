@@ -184,7 +184,7 @@ class Library(QObject, Lockable):
 
         with self.lock:
             if isinstance(name_mask, Wildcard):
-                return self._meta.contains(lambda x: name_mask == x)
+                return any((name_mask == x for x in self._meta))
             else:
                 return name_mask.casefold() in self._meta
 
@@ -383,18 +383,28 @@ class Library(QObject, Lockable):
                 c.execute(sql)
                 return self._tagsFromQuery(c)
 
-    def tag(self, tag):
-        """Get tag with given identity or actual value of tag.
+    def tag(self, *args):
+        """Get actual value of tag. Can accept one argument - Identity or Tag or
+        two arguments - TagClass (str) and TagValue (or TagValue convertible type)
         """
 
-        if tag is None or not tag.isFlushed or tag.lib is not self:
-            return None
+        if len(args) == 1:
+            tag = args[0]
 
-        if tag.id in self._tags:
-            return deepcopy(self._tags[tag.id])
-        else:
-            r = self.tags(TagQuery(identity=tag))
+            if tag is None or not tag.isFlushed or tag.lib is not self:
+                return None
+
+            if tag.id in self._tags:
+                return deepcopy(self._tags[tag.id])
+            else:
+                r = self.tags(TagQuery(identity=tag))
+                return r[0] if r else None
+        elif len(args) == 2:
+            r = self.tags(TagQuery(tag_class=args[0], value=args[1]))
             return r[0] if r else None
+        else:
+            raise TypeError('Library.tag should get 1 or 2 arguments, but {0} given' \
+                            .format(len(args)))
 
     def createTag(self, tag_class, value):
         """Create new tag with given class and value. Class can be string or class Identity.

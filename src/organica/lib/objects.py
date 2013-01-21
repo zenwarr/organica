@@ -145,9 +145,6 @@ class TagValue(object):
         return self.__valueType
 
     def __getattr__(self, name):
-        if not name:
-            raise AttributeError()
-
         for vt in self._type_traits().keys():
             traits = self._type_traits()[vt]
             if name == traits[1]:
@@ -156,9 +153,6 @@ class TagValue(object):
             raise AttributeError()
 
     def __setattr__(self, name, value):
-        if not name:
-            raise AttributeError()
-
         for vt in self._type_traits().keys():
             traits = self._type_traits()[vt]
             if name == traits[1]:
@@ -251,6 +245,9 @@ class TagValue(object):
         traits = TagValue._type_traits()[valueType]
         return traits[0]
 
+    def __str__(self):
+        return str(self.value)
+
 
 class LibraryObject(object):
     """Abstract base class for data nodes, tags and tag classes,
@@ -305,14 +302,6 @@ class LibraryObject(object):
         if self.lib:
             self.lib.flush(self)
 
-    def remove(self):
-        """If object is flushed, remove it from library
-        """
-
-        if self.isFlushed:
-            self.lib.remove(self)
-            self.identity = Identity(self.lib)
-
 
 class TagClass(LibraryObject):
     """Tag class is used to describe properties of tags. Classes are immutable.
@@ -343,6 +332,14 @@ class TagClass(LibraryObject):
     @property
     def hidden(self):
         return self.__hidden
+
+    def remove(self):
+        """If object is flushed, remove it from library
+        """
+
+        if self.isFlushed:
+            self.lib.remove(self)
+            self.identity = Identity(self.lib)
 
     def __eq__(self, other):
         """Two classes are equal if have same names, value type and hidden flag,
@@ -406,6 +403,24 @@ class Tag(LibraryObject):
             return self.identity == condition
         else:
             return condition.passes(self)
+
+    def isFriendOf(self, other_tag):
+        """Two tags are considered to be friends if there is at least one node that have
+        both these tags linked. Tag is always friend of itself.
+        """
+
+        if not self.isFlushed or other_tag is None or not other_tag.isFlushed:
+            return False
+
+        if self.identity == other_tag.identity:
+            return True
+
+        return bool(self.lib.nodes(NodeQuery(linked_with=self) & NodeQuery(linked_with=other_tag)))
+
+    def remove(self, remove_links=False):
+        if self.isFlushed:
+            self.lib.removeTag(self, remove_links)
+            self.identity = Identity(self.lib)
 
     def __eq__(self, other):
         """Tags are equal if both have same name and value but never equal if identities
@@ -471,7 +486,7 @@ class Node(LibraryObject):
         """
 
         self.ensureTagsFetched()
-        return helpers.contains(self.__allTags, lambda t: t.passes(condition))
+        return any((t.passes(condition) for t in self.__allTags))
 
     def passes(self, condition):
         """Check if this node satisfies given condition. Condition can be node Identity - in this case
@@ -598,3 +613,8 @@ class Node(LibraryObject):
                 if self.__allTags[i].isFlushed and self.__allTags[i].identity == tag.identity:
                     self.__allTags[i] = deepcopy(tag)
                     break
+
+    def remove(self, remove_references=False):
+        if self.isFlushed:
+            self.lib.removeNode(self, remove_references)
+            self.identity = Identity(self.lib)

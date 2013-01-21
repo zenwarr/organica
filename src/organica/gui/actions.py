@@ -74,8 +74,12 @@ class ShortcutScheme(object):
         Otherwise scheme saved in file will have only currently registered shortcuts.
         """
 
-        filename = self.__getSchemeFilename(filename)
-        with open(filename, 'rwt') as f:
+        filename = self.__getFilename(filename)
+
+        if not os.path.exists(filename):
+            return
+
+        with open(filename, 'w+t') as f:
             scheme = self.shortcuts
 
             if keep_unloaded:
@@ -92,7 +96,11 @@ class ShortcutScheme(object):
         """Load scheme from file :filename:
         """
 
-        filename = ShortcutScheme.__getSchemeFilename(filename)
+        filename = ShortcutScheme.__getFilename(filename)
+
+        if not os.path.exists(filename):
+            return
+
         with open(filename, 'rt') as f:
             loaded_struct = json.load(f)
             if not isinstance(loaded_struct, dict):
@@ -190,11 +198,13 @@ class CommandManager(object):
         return self.validators.get(id)
 
     def saveShortcutScheme(self):
-        self.shortcutScheme.save(os.path.join(constants.data_dir, self.SHORTCUTS_CONFIG_FILENAME))
+        self.shortcutScheme.save(self.shortcutsConfigFilename())
 
     def loadShortcutScheme(self):
-        self.shortcutScheme = ShortcutScheme.load(os.path.join(constants.data_dir,
-                                                  self.SHORTCUTS_CONFIG_FILENAME))
+        self.shortcutScheme = ShortcutScheme.load(self.shortcutsConfigFilename())
+
+    def shortcutsConfigFilename(self):
+        return os.path.join(constants.data_dir, self.SHORTCUTS_CONFIG_FILENAME)
 
 
 _globalCommandManager = None

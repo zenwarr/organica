@@ -253,7 +253,7 @@ class _Filter_Not(object):
 
 
 class _Query(object):
-    """Base class for TagQuery and ObjectQuery classes.
+    """Base class for TagQuery and NodeQuery classes.
     """
 
     def __init__(self, m_filter):
@@ -262,7 +262,7 @@ class _Query(object):
         self.__limit = self.__offset = 0
 
     def filter(self, filter_object):
-        """AND's current query with another one, returning new QuerySet
+        """AND's current query with another one, returning new _Query
         """
 
         q = copy.copy(self)
@@ -324,6 +324,16 @@ class _Query(object):
             q = copy.copy(self)
             q.__filter = _Filter_Not(self.__filter)
             return q
+
+    def blocked(self):
+        q = copy.copy(self)
+        q.__filter = _Filter_Block()
+        return q
+
+    def disabled(self):
+        q = copy.copy(self)
+        q.__filter = _Filter_Disabled()
+        return q
 
     def passes(self, lib_object):
         return self.__filter.passes(lib_object)
@@ -553,6 +563,42 @@ class _Tag_LinkedWith(object):
         return 0 if not self.node.isFlushed else -1
 
 
+class _Tag_Hidden(object):
+    def __init__(self, is_hidden):
+        self.is_hidden = is_hidden
+
+    def passes(self, tag):
+        return tag is not None and bool(tag.tagClass.hidden) == bool(self.is_hidden)
+
+    def generateSql(self):
+        return 'class_id in (select id from tag_classes where hidden = {0})' \
+               .format(int(self.is_hidden))
+
+    def qeval(self):
+        return -1
+
+
+class _Tag_FriendOf(object):
+    def __init__(self, tag):
+        self.tag = tag
+
+    def passes(self, tag):
+        if tag is None or not tag.isFlushed or self.qeval() == 0:
+            return False
+
+        return tag.lib == self.tag.lib and tag.isFriendOf(self.tag)
+
+    def generateSql(self):
+        if self.qeval() == 0:
+            return _Filter_Block().generateSql()
+
+        return 'id in (select tag_id from links where node_id in (select node_id from links where tag_id = {0}))' \
+               .format(self.tag.id)
+
+    def qeval(self):
+        return 0 if self.tag is None or not self.tag.isFlushed else -1
+
+
 class TagQuery(_Query):
     def __init__(self, **kwargs):
         _Query.__init__(self, self.__getFilter(**kwargs))
@@ -576,6 +622,8 @@ class TagQuery(_Query):
                        or sequence of Identities. Although you can still pass Node as argument,
                        still only identity will be used and each time comparision will be done actual
                        node value will be get from library.
+        hidden:        matches tags that have given hidden class flag value.
+        friend_of:     matches tags that are friends of given tags.
         """
 
         q = copy(self)
@@ -591,7 +639,9 @@ class TagQuery(_Query):
         'locator': _Tag_Locator,
         'node_ref': _Tag_Object,
         'value_type': _Tag_ValueType,
-        'linked_with': _Tag_LinkedWith
+        'linked_with': _Tag_LinkedWith,
+        'hidden': _Tag_Hidden,
+        'friend_of': _Tag_FriendOf
     }
 
     def __getFilter(self, **kwargs):

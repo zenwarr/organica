@@ -4,11 +4,13 @@ import logging
 import argparse
 import threading
 
-from organica.utils.settings import Settings
+from PyQt4.QtGui import QApplication
+
+from organica.utils.settings import globalSettings, SettingsError
 from organica.gui.actions import globalCommandManager
 import organica.utils.constants as constants
-from organica.gui.mainwin import MainWindow
-from PyQt4 import QtGui
+from organica.gui.mainwin import globalMainWindow
+from organica.utils.extend import globalPluginManager
 
 
 logger = logging.getLogger(__name__)
@@ -19,14 +21,15 @@ class InitError(Exception):
         Exception.__init__(self, desc)
 
 
-class Application(QtGui.QApplication):
+class Application(QApplication):
     def __init__(self):
-        QtGui.QApplication.__init__(self, sys.argv)
+        QApplication.__init__(self, sys.argv)
         self.setApplicationName('Organica')
         self.setOrganizationName('zenwarr')
         self.setOrganizationDomain('http://github.org/zenwarr/organica')
         self.setApplicationVersion('0.0.1 pre-alpha')
 
+    def startUp(self):
         logging.basicConfig()
 
         constants.gui_thread = threading.current_thread()
@@ -71,7 +74,10 @@ class Application(QtGui.QApplication):
 
         self.__registerSettings()
 
-        globalCommandManager().loadShortcutScheme()
+        try:
+            globalCommandManager().loadShortcutScheme()
+        except Exception as err:
+            logger.error('failed to read shortcuts scheme: ' + str(err))
 
         # initialize argument parser. We can use it later, when another instance delivers args to us
         self.argparser = argparse.ArgumentParser(prog=self.applicationName())
@@ -84,29 +90,34 @@ class Application(QtGui.QApplication):
                                     action='store_true',
                                     help='reset application settings to defaults')
 
-    def startUp(self):
         # parse arguments
         arguments = self.argparser.parse_args()
 
         if arguments.reset_settings:
-            Settings().reset()
+            globalSettings().reset()
         else:
-            Settings().load()
+            try:
+                globalSettings().load()
+            except SettingsError as err:
+                logger.error(err)
 
         # init logging
-        if Settings().get('log_file_name') != None:
-            logging.basicConfig(filename=Settings().get('log_file_name'))
+        if globalSettings().get('log_file_name') != None:
+            logging.basicConfig(filename=globalSettings()['log_file_name'])
         else:
             logging.basicConfig()
 
         #todo: redirect standart io channels
 
-        self.mainWindow = MainWindow()
+        globalPluginManager().loadPlugins()
+
+        self.mainWindow = globalMainWindow()
         self.mainWindow.show()
 
     def shutdown(self):
+        globalPluginManager().unloadPlugins()
         globalCommandManager().saveShortcutScheme()
-        Settings().save()
+        globalSettings().save()
         logging.shutdown()
 
     def __registerSettings(self):
@@ -114,6 +125,16 @@ class Application(QtGui.QApplication):
             ('log_file_name', None),
         )
 
-        s = Settings()
+        s = globalSettings()
         for k, v in all_settings:
             s.register(k, v)
+
+
+_globalAppplication = None
+
+
+def globalApplication():
+    global _globalAppplication
+    if _globalAppplication is None:
+        _globalAppplication = Application()
+    return _globalAppplication

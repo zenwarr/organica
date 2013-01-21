@@ -1,4 +1,6 @@
-import sys, os
+import sys
+import os
+
 
 class Builder:
     def __init__(self, project_dir):
@@ -37,9 +39,11 @@ class Builder:
     def need_update(self, source, generated):
         return not os.path.exists(generated) or os.stat(source).st_mtime > os.stat(generated).st_mtime
 
+
 def build_project():
     builder = Builder(os.path.join(os.path.dirname(__file__), 'organica'))
     builder.build()
+
 
 if __name__ == '__main__':
     build_project()
