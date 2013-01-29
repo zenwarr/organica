@@ -1,7 +1,6 @@
 import os
 import logging
 import json
-import itertools
 
 from PyQt4.QtCore import QObject, pyqtSignal, QUuid
 
@@ -40,35 +39,41 @@ class ObjectPool(QObject, Lockable):
         with self.lock:
             return any((x == obj for x in self._objects))
 
-    def addObject(self, obj):
+    def add(self, obj):
         """Add object into pool. You should not add objects directly into _objects list.
         """
 
         with self.lock:
-            if isinstance(obj, list) or isinstance(obj, tuple):
-                for x in obj:
+            if obj is not None:
+                if isinstance(obj, list) or isinstance(obj, tuple):
+                    for x in obj:
+                        x = _PluginObjectWrapper(x)
+                        self._objects.append(x)
+                        self.objectAdded.emit(x)
+                else:
+                    obj = _PluginObjectWrapper(obj)
                     self._objects.append(obj)
                     self.objectAdded.emit(obj)
-            else:
-                self._objects.append(obj)
-                self.objectAdded.emit(obj)
 
     def removeExtensionObjects(self, ext_uuid):
         """Convenience method to remove all objects which are assotiated with
         given extension UUID
         """
 
-        self.removeObjects(lambda x: x.extensionUuid == ext_uuid)
+        self.removeObjects(lambda x: hasattr(x, 'extensionUuid') and x.extensionUuid == ext_uuid)
 
     def removeObjects(self, predicate=None):
         """Remove objects for which predicate is true.
         """
 
         with self.lock:
-            objs_to_remove = [x for x in self._objects if predicate and predicate(x)]
-            self._objects = [x for x in self._objects if not (predicate and predicate(x))]
+            objs_to_remove = [x for x in self._objects if predicate is None or predicate(x._target)]
+            self._objects = [x for x in self._objects if predicate is not None and not predicate(x._target)]
             for obj in objs_to_remove:
-                self.objectRemoved.emit(objs_to_remove)
+                self.objectRemoved.emit(obj)
+
+    def removeObject(self, obj):
+        self.removeObjects(lambda x: x is obj)
 
     def objects(self, group=None, predicate=None):
         """Get list of objects with given group and for which predicate is True.
@@ -77,61 +82,10 @@ class ObjectPool(QObject, Lockable):
 
         with self.lock:
             return [x for x in self._objects if (not group or x.group == group) \
-                    and (not predicate or predicate(x))]
+                    and (predicate is None or predicate(x))]
 
     def __getitem__(self, group_name):
         return self.objects(group_name)
-
-
-class AggregateObjectPool(QObject, Lockable):
-    objectAdded = pyqtSignal(object)
-    objectRemoved = pyqtSignal(object)
-
-    def __init__(self):
-        self.__pools = []
-
-    def addPool(self, pool):
-        with self.lock:
-            if any((x is pool for x in self.__pools)):
-                return
-            with pool.lock:
-                self.__pools.append(pool)
-                for x in pool:
-                    self.objectAdded.emit(x)
-                pool.objectAdded.connect(self.objectAdded)
-                pool.objectRemoved.connect(self.objectRemoved)
-
-    def removePool(self, pool):
-        with self.lock:
-            if any((x is pool for x in self.__pools)):
-                with pool.lock:
-                    self.__pools = [x for x in self.__pools if x is not pool]
-                    for obj in pool:
-                        self.objectRemoved.emit(obj)
-                    pool.objectAdded.disconnect(self.objectAdded)
-                    pool.objectRemoved.disconnect(self.objectRemoved)
-
-    def __len__(self):
-        with self.lock:
-            r = 0
-            for pool in self.__pools:
-                r += len(pool)
-            return r
-
-    def __iter__(self):
-        with self.lock:
-            for pool in self.__pools:
-                return pool.__iter__()
-
-    def __contains__(self, obj):
-        with self.lock:
-            return any((obj in pool for pool in self.__pools))
-
-    def objects(self, group=None, predicate=None):
-        with self.lock:
-            return list(itertools.chain(*[pool.objects(group, predicate) for pool in self.__pools]))
-
-
 
 
 _globalObjectPool = None
@@ -343,26 +297,152 @@ def globalPluginManager():
 
 
 def Hooks(object):
-    __allHooks = dict()
+    _allHooks = dict()
 
     @staticmethod
     def installHook(hook_name, callback):
-        if hook_name in Hooks.__allHooks:
-            Hooks.__allHooks[hook_name].append(callback)
+        if hook_name in Hooks._allHooks:
+            Hooks._allHooks[hook_name].append(callback)
         else:
-            Hooks.__allHooks[hook_name] = [callback]
+            Hooks._allHooks[hook_name] = [callback]
 
     @staticmethod
     def uninstallHook(hook_name, callback):
-        if hook_name in Hooks.__allHooks:
-            Hooks.__allHooks[hook_name] = [x for x in Hooks.__allHooks[hook_name] if x is not callback]
+        if hook_name in Hooks._allHooks:
+            Hooks._allHooks[hook_name] = [x for x in Hooks._allHooks[hook_name] if x is not callback]
 
     @staticmethod
     def safeRunHook(hook_name, **kwargs):
         """Call each hook installed. Does not raises any exception from hooks.
         """
-        for callback in Hooks.__allHooks.get(hook_name, []):
+        for callback in Hooks._allHooks.get(hook_name, []):
             try:
                 callback(**kwargs)
             except Exception as err:
                 logger.error('error while processing hook {0}: {1}'.format(err))
+
+    @staticmethod
+    def unsafeRunHook(hook_name, **kwargs):
+        for callback in Hooks._allHooks.get(hook_name, []):
+            callback(**kwargs)
+
+    def runHook(self, hook_name, **kwargs):
+        getattr(self, ('un' if constants.debug_plugins else '') + 'runHook')(hook_name, **kwargs)
+
+
+def reportPluginFail(error, plugin_object):
+    plugin_title = ''
+    try:
+        if hasattr(plugin_object, 'name'):
+            plugin_title = plugin_object.name
+        elif hasattr(plugin_object, 'uuid'):
+            plugin_title = plugin_object.uuid
+    except:
+        pass
+
+    logger.error('plugin {0} error: {1}'.format(plugin_title, error))
+
+
+def pluginGetattr(plugin_object, attr_name, default=None):
+    try:
+        if hasattr(plugin_object, attr_name):
+            return getattr(plugin_object, attr_name)
+    except:
+        return default
+
+
+class _PluginObjectWrapper(object):
+    def __init__(self, target):
+        self._target = target
+
+    def __getattr__(self, attr_name):
+        if attr_name.startswith('_') or attr_name.startswith('_PluginObjectWrapper'):
+            return object.__getattr__(self, attr_name)
+        if self._target is not None:
+            if not constants.debug_plugins:
+                try:
+                    return getattr(self._target, attr_name)
+                except Exception as err:
+                    reportPluginFail(err, self._target)
+                except:
+                    reportPluginFail(None, self._target)
+            else:
+                return getattr(self._target, attr_name)
+        return None
+
+    def __setattr__(self, attr_name, attr_value):
+        if attr_name.startswith('_') or attr_name.startswith('_PluginObjectWrapper'):
+            object.__setattr__(self, attr_name, attr_value)
+        if self._target is not None:
+            if not constants.debug_plugins:
+                try:
+                    setattr(self._target, attr_name, attr_value)
+                except Exception as err:
+                    reportPluginFail(err, self._target)
+                except:
+                    reportPluginFail(None, self._target)
+            else:
+                setattr(self._target, attr_name, attr_value)
+
+    def __getitem__(self, item):
+        if self._target is not None:
+            if not constants.debug_plugins:
+                try:
+                    return self._target[item]
+                except Exception as err:
+                    reportPluginFail(err, self._target)
+                except:
+                    reportPluginFail(None, self._target)
+            else:
+                return self._target[item]
+        return None
+
+    def __setitem__(self, item, value):
+        if self._target is not None:
+            if not constants.debug_plugins:
+                try:
+                    self._target[item] = value
+                except Exception as err:
+                    reportPluginFail(err, self._target)
+                except:
+                    reportPluginFail(None, self._target)
+            else:
+                self._target[item] = value
+        return None
+
+    def __delitem__(self, item):
+        if self._target is not None:
+            if not constants.debug_plugins:
+                try:
+                    del self._target[item]
+                except Exception as err:
+                    reportPluginFail(err, self._target)
+                except:
+                    reportPluginFail(None, self._target)
+            else:
+                del self._target[item]
+        return None
+
+    def __iter__(self):
+        if self._target is not None:
+            if not constants.debug_plugins:
+                try:
+                    return iter(self._target)
+                except Exception as err:
+                    reportPluginFail(err, self._target)
+                except:
+                    reportPluginFail(None, self._target)
+            else:
+                return iter(self._target)
+        return None
+
+    def __eq__(self, other):
+        if self._target is not None:
+            if isinstance(other, _PluginObjectWrapper):
+                return self._target == other._target
+            else:
+                return self._target == other
+        return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)

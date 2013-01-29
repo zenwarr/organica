@@ -53,6 +53,8 @@ class TestTagSet(unittest.TestCase):
         tagSet.isPaused = False
         self.assertEqual(len(tagSet), 1)
 
+        lib.disconnect()
+
 
 class TestNodeSet(unittest.TestCase):
     def test(self):
@@ -122,3 +124,5 @@ class TestNodeSet(unittest.TestCase):
 
         alice_node.remove()
         self.assertEqual(len(node_set), 0)
+
+        lib.disconnect()

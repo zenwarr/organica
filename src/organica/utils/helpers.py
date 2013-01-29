@@ -1,3 +1,6 @@
+from PyQt4.QtCore import QCoreApplication
+
+
 def each(iterable, pred):
     if pred is None or not callable(pred):
         raise TypeError('invalid predicate')
@@ -15,3 +18,7 @@ def escape(text, need_escape):
         escaped = escaped + ('\\{0}'.format(c) if c in need_escape and not escaping else c)
         escaping = not escaping and c == '\\'
     return escaped
+
+
+def tr(text, context='', disambiguation=None):
+    return QCoreApplication.translate(context, text, disambiguation, QCoreApplication.UnicodeUTF8)

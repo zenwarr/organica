@@ -4,8 +4,9 @@ import sqlite3
 import logging
 import uuid
 from copy import copy, deepcopy
+from threading import RLock
 
-from PyQt4.QtCore import QObject, pyqtSignal
+from PyQt4.QtCore import QObject, pyqtSignal, QFileInfo
 
 import organica.utils.helpers as helpers
 from organica.utils.lockable import Lockable
@@ -53,6 +54,9 @@ class Library(QObject, Lockable):
         '_meta', '_tagClasses', '_tags', '_nodes'
     ]
 
+    _loaded_libraries = []
+    _loaded_libraries_lock = RLock()
+
     # Signals are emitted when set of library objects is changed or updated.
     # Receiver should not rely on library state at moment of processing signal as
     # it can be caused by changes made by another thread. Arguments values should
@@ -86,6 +90,9 @@ class Library(QObject, Lockable):
         self._nodes = {}  # map by id
         self._trans_states = []
 
+    def __del__(self):
+        self.disconnect()
+
     @staticmethod
     def loadLibrary(filename):
         """Load library from database file. File should exists, otherwise LibraryError raised.
@@ -95,6 +102,10 @@ class Library(QObject, Lockable):
         if filename.casefold() == ':memory:':
             raise LibraryObject('Library.createLibrary should be used to create in-memory databases')
 
+        loaded_lib = Library._findOpenLibrary(filename)
+        if loaded_lib is not None:
+            return loaded_lib
+
         if not os.path.exists(filename):
             raise LibraryError('database file {0} does not exists'.format(filename))
 
@@ -102,7 +113,7 @@ class Library(QObject, Lockable):
         lib._connect(filename)
 
         # check magic row to distinguish organica library
-        with self.cursor() as c:
+        with lib.cursor() as c:
             c.execute("select 1 from organica_meta where name = 'organica' and value = 'is magic'")
             if not c.fetchone():
                 raise LibraryError('database "{0}" is not organica database'.format(filename))
@@ -111,6 +122,10 @@ class Library(QObject, Lockable):
         # in memory for quick access
         lib.__loadMeta()
         lib.__loadTagClasses()
+
+        with Library._loaded_libraries_lock:
+            Library._loaded_libraries.append(lib)
+
         return lib
 
     @staticmethod
@@ -118,6 +133,10 @@ class Library(QObject, Lockable):
         """Creates new library in file :filename:. If database file does not exists, LibraryError will be
         raised. :filename: can be ":memory:" - in this case in-memory database will be created.
         """
+
+        if filename.casefold() != ':memory:':
+            if Library._findOpenLibrary(filename):
+                raise LibraryError('failed to create library {0}: database already in use')
 
         # we will not replace existing database
         if os.path.exists(filename):
@@ -169,7 +188,19 @@ class Library(QObject, Lockable):
 
             # and add magic meta
             lib.setMeta('organica', 'is magic')
+
+        with Library._loaded_libraries_lock:
+            Library._loaded_libraries.append(lib)
+
         return lib
+
+    @staticmethod
+    def _findOpenLibrary(filename):
+        with Library._loaded_libraries_lock:
+            for lib in Library._loaded_libraries:
+                if QFileInfo(lib.databaseFilename) == QFileInfo(filename):
+                    return lib
+        return None
 
     def getMeta(self, meta_name, default=''):
         """Get meta value. Meta name is not case-sensitive
@@ -279,7 +310,7 @@ class Library(QObject, Lockable):
             else:
                 return deepcopy(self._tagClasses.get(tag_class.casefold(), None))
 
-    def tagClasses(self, name_mask):
+    def tagClasses(self, name_mask=Wildcard('*')):
         """Get classes with names that matches given mask.
         """
 
@@ -765,6 +796,9 @@ class Library(QObject, Lockable):
             if self._conn:
                 self._conn.close()
 
+            with Library._loaded_libraries_lock:
+                Library._loaded_libraries = [lib for lib in Library._loaded_libraries if lib is not self]
+
     @property
     def databaseFilename(self):
         with self.lock:
@@ -817,6 +851,7 @@ class Library(QObject, Lockable):
             else:
                 return -1
 
+        self._filename = filename
         self._conn = sqlite3.connect(filename, isolation_level=None)
         self._conn.create_collation('strict_nocase', strict_nocase_collation)
         self._conn.row_factory = sqlite3.Row
@@ -841,3 +876,11 @@ class Library(QObject, Lockable):
                         r = c.fetchone()
 
                     print('')
+
+    @property
+    def name(self):
+        return self.getMeta('name')
+
+    @name.setter
+    def name(self, new_name):
+        self.setMeta('name', new_name)

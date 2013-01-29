@@ -2,7 +2,7 @@ import os
 import logging
 import json
 
-from PyQt4.QtCore import QSettings
+from PyQt4.QtCore import QByteArray
 
 import organica.utils.constants as constants
 from organica.utils.lockable import Lockable
@@ -54,7 +54,7 @@ class Settings(Lockable):
                     try:
                         settings = json.load(f)
                     except ValueError as err:
-                        logger.log('error while parsing config file {0}: {1}'.format(self.filename, err))
+                        logger.error('error while parsing config file {0}: {1}'.format(self.filename, err))
                         settings = None
 
                     if settings is None:
@@ -117,7 +117,7 @@ class Settings(Lockable):
     def get(self, setting_name):
         with self.lock:
             if setting_name in self.allSettings:
-                return self.userSettings[setting_name]
+                return self.allSettings[setting_name]
             elif setting_name in self.registered:
                 return self.registered[setting_name]
             elif self.__strictControl:
@@ -138,6 +138,7 @@ class Settings(Lockable):
         with self.lock:
             if self.__strictControl and setting_name not in self.registered:
                 raise SettingsError('writing unregistered setting %s' % setting_name)
+
             if setting_name in self.registered and self.registered[setting_name] == value:
                 del self.allSettings[setting_name]
             else:

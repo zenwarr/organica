@@ -43,9 +43,6 @@ class TopicsView(QWidget):
 
         self.__lib = None
 
-        self.tagActiveState = StandardStateValidator('Tags.TagActive')
-        globalCommandManager().addValidator(self.tagActiveState)
-
         self.searchLine = QLineEdit(self)
         self.searchLine.textChanged.connect(self.__onSearchTextChanged)
         self.searchButton = QToolButton(self)
@@ -70,7 +67,7 @@ class TopicsView(QWidget):
 
         self.modeButtonsGroup = QButtonGroup()
 
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout()
         layout.setMargin(0)
         searchBoxLayout = QHBoxLayout()
         searchBoxLayout.addWidget(self.searchLine)
@@ -79,6 +76,7 @@ class TopicsView(QWidget):
         layout.addWidget(self.tree)
         self.modesLayout = QHBoxLayout()
         layout.addLayout(self.modesLayout)
+        self.setLayout(layout)
 
         self.contextMenu = QMenu(self)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -144,6 +142,18 @@ class TopicsView(QWidget):
                 return m_button
         else:
             return None
+
+    @property
+    def selectedTag(self):
+        return self._treeModel.index(self.currentIndex()).data(TagsModel.TagIdentityRole)
+
+    @selectedTag.setter
+    def selectedTag(self, new_tag):
+        from organica.lib.objects import get_identity
+        if get_identity(new_tag) != self.selectedTag:
+            indexes = self._treeModel.indexesForTag(get_identity(new_tag))
+            if indexes:
+                self.setCurrentIndex(indexes[0])
 
     def __onSearchTextChanged(self, new_search_text):
         tags_model = self._treeModel.sourceModel()

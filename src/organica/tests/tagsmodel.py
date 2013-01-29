@@ -1,6 +1,6 @@
 import unittest
 
-from organica.gui.topicsmodel import TagsModel
+from organica.lib.tagsmodel import TagsModel
 from organica.tests.samplelib import buildSample
 
 
@@ -28,3 +28,5 @@ class TestTagsModel(unittest.TestCase):
 
         values = [model.data(model.index(x, 1)) for x in range(3)]
         self.assertEqual(sorted(values), ['Brand new gentre', 'Fiction', 'Tragedy'])
+
+        lib.disconnect()

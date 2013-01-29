@@ -1,6 +1,5 @@
 import os
 import json
-import logging
 
 from PyQt4.QtCore import QObject, pyqtSignal
 from PyQt4.QtGui import QAction, QKeySequence, QMenuBar, QMenu, QToolBar
@@ -8,29 +7,25 @@ from PyQt4.QtGui import QAction, QKeySequence, QMenuBar, QMenu, QToolBar
 import organica.utils.constants as constants
 
 
-logger = logging.getLogger(__name__)
-
-
 class Command(QAction):
     def __init__(self, id, user_text, validator=None, default_shortcut=QKeySequence()):
-        QAction.__init__(self, user_text)
+        QAction.__init__(self, user_text, None)
         self.id = id
-        self.defaultShortcut = default_shortcut
+        self.defaultShortcut = QKeySequence(default_shortcut)
         self.setShortcut(default_shortcut)
+        self.__validator = None
         self.validator = validator
 
     def resetShortcut(self):
         """Reset command shortcut to default value
         """
-
         self.setShortcut(self.defaultShortcut)
 
     @property
     def validator(self):
         """Validator is object that determines if command should be enabled at current moment.
-        None validator means that command is always e
+        None validator means that command is always enabled.
         """
-
         return self.__validator
 
     @validator.setter
@@ -38,28 +33,13 @@ class Command(QAction):
         if new_validator == self.__validator:
             return
 
-        if self.__validator:
+        if self.__validator is not None:
             self.__validator.stateChanged.disconnect(self.setEnabled)
 
         self.__validator = new_validator
         self.setEnabled(not self.__validator or self.__validator.isActive)
-        if self.__validator:
+        if self.__validator is not None:
             self.__validator.connect(self.setEnabled)
-
-
-class CommandContainer:
-    def __init__(self, id, user_text=''):
-        self.id = id
-        self.userText = user_text
-
-    def appendSeparator(self):
-        raise NotImplementedError()
-
-    def appendCommand(self, command):
-        raise NotImplementedError()
-
-    def appendContainer(self, cont):
-        raise NotImplementedError()
 
 
 class ShortcutScheme(object):
@@ -153,17 +133,17 @@ class CommandManager(object):
             raise TypeError('invalid argument: cmd')
 
         # if current shortcut scheme redefines key for this command
-        if cmd.id in self.shortcutMapping:
-            cmd.setShortcut(self.shortcutMapping[cmd.id])
+        if cmd.id in self.shortcutScheme.shortcuts:
+            cmd.setShortcut(self.shortcutScheme.shortcuts[cmd.id])
         self.commands[cmd.id] = cmd
 
-    def addNewCommand(self, slot, cmd_id, user_text, validator=None, def_shortcut=QKeySequence()):
+    def addNewCommand(self, slot, cmd_id, user_text, validator=None, default_shortcut=QKeySequence()):
         """Create new command and add it with CommandManager.addCommand
         """
 
         if not cmd_id or cmd_id in self.commands:
             raise TypeError('invalid argument: cmd_id')
-        cmd = Command(cmd_id, user_text, validator, def_shortcut)
+        cmd = Command(cmd_id, user_text, validator, default_shortcut)
         if slot:
             cmd.triggered.connect(slot)
         self.addCommand(cmd)
@@ -217,67 +197,75 @@ def globalCommandManager():
     return _globalCommandManager
 
 
-class QMenuCommandContainer(QMenu, CommandContainer):
+class QMenuCommandContainer(QMenu):
     def __init__(self, id, user_text, parent=None):
-        QMenu.__init__(self, parent)
-        CommandContainer.__init__(self, id, user_text)
+        QMenu.__init__(self, user_text, parent)
+        self.id = id
+        self.userText = user_text
 
     def appendCommand(self, command):
         if isinstance(command, str):
             command = globalCommandManager().command(command)
-        if command is not None:
-            self.addAction(command)
+        if not command:
+            raise TypeError('invalid argument: command')
+        self.addAction(command)
 
     def appendContainer(self, container):
         if isinstance(container, str):
             container = globalCommandManager().container(container)
-        if container is not None:
-            if not isinstance(container, QMenuCommandContainer):
-                raise TypeError('menu container expected')
-            self.addMenu(container)
+        if not container:
+            raise TypeError('invalid argument: command')
+        if not isinstance(container, QMenuCommandContainer):
+            raise TypeError('menu container expected')
+        self.addMenu(container)
 
     def appendSeparator(self):
         self.addSeparator()
 
 
-class QMenuBarCommandContainer(QMenuBar, CommandContainer):
+class QMenuBarCommandContainer(QMenuBar):
     def __init__(self, id, parent=None):
         QMenuBar.__init__(self, parent)
-        CommandContainer.__init__(self, id)
+        self.id = id
+        self.userText = ''
 
     def appendCommand(self, command):
         if isinstance(command, str):
             command = globalCommandManager().command(command)
-        if command is not None:
-            self.addAction(command)
+        if not command:
+            raise TypeError('invalid argument: command')
+        self.addAction(command)
 
     def appendContainer(self, container):
         if isinstance(container, str):
             container = globalCommandManager.container(container)
-        if container is not None:
-            if not isinstance(container, QMenuCommandContainer):
-                raise TypeError('menu container expected')
-            self.addMenu(container)
+        if not container:
+            raise TypeError('invalid argument: command')
+        if not isinstance(container, QMenuCommandContainer):
+            raise TypeError('menu container expected')
+        self.addMenu(container)
 
     def appendSeparator(self):
         self.addSeparator()
 
 
-class QToolBarCommandContainer(QToolBar, CommandContainer):
-    def __init__(self, id, userText, parent=None):
+class QToolBarCommandContainer(QToolBar):
+    def __init__(self, id, user_text, parent=None):
         QToolBar.__init__(self, parent)
-        CommandContainer.__init__(self, id, userText)
+        self.id = id
+        self.userText = user_text
 
-    def addCommand(self, command):
+    def appendCommand(self, command):
         if isinstance(command, str):
             command = globalCommandManager().command(command)
-        if command is not None:
-            self.addAction(command)
+        if not command:
+            raise TypeError('invalid argument: command')
+        self.addAction(command)
 
-    def addContainer(self, container):
-        raise NotImplementedError('containers cannot be added into toolbar')
+    def appendContainer(self, container):
+        raise NotImplementedError('containers cannot be added to toolbar')
 
-    def addSeparator(self):
+    def appendSeparator(self):
         self.addSeparator()
 
 

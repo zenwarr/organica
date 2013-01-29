@@ -139,38 +139,55 @@ class _Filter_Block(object):
         return 0
 
 
-class _Filter_And(object):
+class _Twin_Filter(object):
+    def __init__(self, left, right):
+        self.left = left or _Filter_Disabled()
+        self.right = right or _Filter_Disabled()
+
+    def disableHinted(self, hint):
+        if hasattr(self, 'hint') and self.hint == hint:
+            self.left = _Filter_Disabled()
+            self.right = _Filter_Disabled()
+        else:
+            if hasattr(self.left, 'hint') and self.left.hint == hint:
+                self.left = _Filter_Disabled()
+            elif hasattr(self.left, 'disableHinted'):
+                self.left.disableHinted(hint)
+
+            if hasattr(self.right, 'hint') and self.right.hint == hint:
+                self.right = _Filter_Disabled()
+            elif hasattr(self.right, 'disableHinted'):
+                self.right.disableHinted(hint)
+
+
+class _Filter_And(_Twin_Filter):
     """This filter is TRUE only when :left: and :right: filters are TRUE. If one
     of these filters is evaluated to False, it considered to be disabled (always TRUE).
     """
-
-    def __init__(self, left, right):
-        self.__left = left or _Filter_Disabled()
-        self.__right = right or _Filter_Disabled()
 
     def passes(self, obj):
         if obj is None:
             return False
 
-        return self.__left.passes(obj) and self.__right.passes(obj)
+        return self.left.passes(obj) and self.right.passes(obj)
 
     def generateSql(self):
         if self.qeval() == -1:
-            if self.__left.qeval() == -1 and self.__right.qeval() == -1:
-                return '({0}) and ({1})'.format(self.__left.generateSql(),
-                                              self.__right.generateSql())
-            elif self.__left.qeval() == -1:
-                return self.__left.generateSql()
+            if self.left.qeval() == -1 and self.right.qeval() == -1:
+                return '({0}) and ({1})'.format(self.left.generateSql(),
+                                              self.right.generateSql())
+            elif self.left.qeval() == -1:
+                return self.left.generateSql()
             else:
-                return self.__right.generateSql()
+                return self.right.generateSql()
         elif self.qeval() == 1:
             return _Filter_Disabled().generateSql()
         else:
             return _Filter_Block().generateSql()
 
     def qeval(self):
-        left = self.__left.qeval() if self.__left else 1
-        right = self.__right.qeval() if self.__right else 1
+        left = self.left.qeval() if self.left else 1
+        right = self.right.qeval() if self.right else 1
 
         if left == 0 or right == 0:
             return 0
@@ -180,38 +197,34 @@ class _Filter_And(object):
             return -1
 
 
-class _Filter_Or(object):
+class _Filter_Or(_Twin_Filter):
     """This filter is TRUE if at least one of :left: and :right: filters is TRUE.
     Calculation is lazy: if first filter is passed, second one will not be checked.
     """
-
-    def __init__(self, left, right):
-        self.__left = left or _Filter_Disabled()
-        self.__right = right or _Filter_Disabled()
 
     def passes(self, obj):
         if obj is None:
             return False
 
-        return self.__left.passes(obj) or self.__right.passes(obj)
+        return self.left.passes(obj) or self.right.passes(obj)
 
     def generateSql(self):
         if self.qeval() == -1:
-            if self.__left.qeval() == -1 and self.__right.qeval() == -1:
-                return '({0}) or ({1})'.format(self.__left.generateSql(),
-                                               self.__right.generateSql())
-            elif self.__left.qeval() == 0:
-                return self.__right.qeval()
+            if self.left.qeval() == -1 and self.right.qeval() == -1:
+                return '({0}) or ({1})'.format(self.left.generateSql(),
+                                               self.right.generateSql())
+            elif self.left.qeval() == 0:
+                return self.right.qeval()
             else:
-                return self.__left.qeval()
+                return self.left.qeval()
         elif self.qeval() == 1:
             return _Filter_Disabled().generateSql()
         else:
             return _Filter_Block().generateSql()
 
     def qeval(self):
-        left = self.__left.qeval() if self.__left else 1
-        right = self.__right.qeval() if self.__right else 1
+        left = self.left.qeval() if self.left else 1
+        right = self.right.qeval() if self.right else 1
 
         if left == 1 or right == 1:
             return 1
@@ -251,6 +264,20 @@ class _Filter_Not(object):
         else:
             return -1
 
+    @property
+    def hint(self):
+        return self.__expr.hint if hasattr(self.__expr, 'hint') else None
+
+    @hint.setter
+    def hint(self, new_hint):
+        self.__expr.hint = new_hint
+
+    def disableHinted(self, hint):
+        if self.hint == hint:
+            self.__filter = _Filter_Disabled()
+        elif hasattr(self.__expr, 'disableHinted'):
+            self.__filter.disableHinted()
+
 
 class _Query(object):
     """Base class for TagQuery and NodeQuery classes.
@@ -265,7 +292,7 @@ class _Query(object):
         """AND's current query with another one, returning new _Query
         """
 
-        q = copy.copy(self)
+        q = copy.deepcopy(self)
         q.__filter = _Filter_And(self.__filter, filter_object)
         return q
 
@@ -273,7 +300,7 @@ class _Query(object):
         """Limits result count to :limit_count:
         """
 
-        q = copy.copy(self)
+        q = copy.deepcopy(self)
         q.__limit = limit_count
         return q
 
@@ -281,7 +308,7 @@ class _Query(object):
         """Make first :offset_count: results to be omitted from resulting set
         """
 
-        q = copy.copy(self)
+        q = copy.deepcopy(self)
         q.__offset = offset_count
         return q
 
@@ -291,9 +318,9 @@ class _Query(object):
 
         # True and True = True
         if not self.__filter and not other.__filter:
-            return copy.copy(self)
+            return copy.deepcopy(self)
         else:
-            q = copy.copy(self)
+            q = copy.deepcopy(self)
             q.__filter = _Filter_And(self.__filter, other.__filter)
             return q
 
@@ -303,11 +330,11 @@ class _Query(object):
 
         # True or x = True
         if not self.__filter or not other.__filter:
-            q = copy.copy(self)
+            q = copy.deepcopy(self)
             q.__filter = _Filter_Disabled()
             return q
         else:
-            q = copy.copy(self)
+            q = copy.deepcopy(self)
             q.__filter = _Filter_Or(self.__filter, other.__filter)
             return q
 
@@ -317,21 +344,21 @@ class _Query(object):
 
         # not True = False
         if not self.__filter:
-            q = copy.copy(self)
+            q = copy.deepcopy(self)
             q.__filter = _Filter_Block()
             return q
         else:
-            q = copy.copy(self)
+            q = copy.deepcopy(self)
             q.__filter = _Filter_Not(self.__filter)
             return q
 
     def blocked(self):
-        q = copy.copy(self)
+        q = copy.deepcopy(self)
         q.__filter = _Filter_Block()
         return q
 
     def disabled(self):
-        q = copy.copy(self)
+        q = copy.deepcopy(self)
         q.__filter = _Filter_Disabled()
         return q
 
@@ -348,6 +375,21 @@ class _Query(object):
         if self.__offset:
             q = q + ' offset ' + str(self.__offset)
         return q
+
+    def disableHinted(self, hint):
+        if hasattr(self.__filter, 'disableHinted'):
+            self.__filter.disableHinted(hint)
+        elif hasattr(self.__filter, 'hint') and self.__filter.hint == hint:
+            self.__filter = _Filter_Disabled()
+
+    @property
+    def hint(self):
+        return self.__filter.hint if hasattr(self.__filter, 'hint') else None
+
+    @hint.setter
+    def hint(self, new_hint):
+        if self.hint != new_hint:
+            self.__filter.hint = new_hint
 
     def qeval(self):
         return self.__filter.qeval()
@@ -658,6 +700,7 @@ class TagQuery(_Query):
             else:
                 raise TypeError('TagQuery.filter: unknown argument {0}'.format(arg))
         return f
+
 
 TagFilter = TagQuery
 
