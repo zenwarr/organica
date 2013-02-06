@@ -22,3 +22,11 @@ def escape(text, need_escape):
 
 def tr(text, context='', disambiguation=None):
     return QCoreApplication.translate(context, text, disambiguation, QCoreApplication.UnicodeUTF8)
+
+
+def cicompare(first, second):
+    # use str.casefold if available
+    if hasattr(first, 'casefold'):
+        return first.casefold() == second.casefold()
+    else:
+        return first.lower() == second.lower()

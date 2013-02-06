@@ -9,9 +9,13 @@ class Builder:
 
         if sys.platform.startswith('win32'):
             self.pyqt4_path = os.path.join(os.path.dirname(sys.executable), 'Lib\\site-packages\\PyQt4')
-        self.uic_path = os.path.join(self.pyqt4_path, 'pyuic4')
-        self.rcc_path = os.path.join(self.pyqt4_path, 'pyrcc4')
-        self.lrelease_path = os.path.join(self.pyqt4_path, 'lrelease')
+            self.uic_path = os.path.join(self.pyqt4_path, 'pyuic4')
+            self.rcc_path = os.path.join(self.pyqt4_path, 'pyrcc4')
+            self.lrelease_path = os.path.join(self.pyqt4_path, 'lrelease')
+        else:
+            self.uic_path = 'pyuuic4'
+            self.rcc_path = 'pyrcc4'
+            self.lrelease_path = 'lrelease'
 
     def build(self):
         print('BUILDING......')

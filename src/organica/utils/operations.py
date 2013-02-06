@@ -4,7 +4,7 @@ from queue import Queue
 from copy import copy
 
 from PyQt4.QtCore import Qt, QObject, pyqtSignal, QCoreApplication, QEvent, QTimer
-from PyQt4.QtGui import QApplication
+from PyQt4.QtGui import QApplication, QMessageBox
 
 from organica.utils.lockable import Lockable
 import organica.utils.constants as constants
@@ -208,6 +208,11 @@ class Operation(QObject, Lockable):
     RUNMODE_THIS_THREAD = 1
     RUNMODE_NEW_THREAD = 2
 
+    DEFAULT_ERROR_POLICY = 0
+    IGNORE_ERROR_POLICY = 1
+    FAIL_ERROR_POLICY = 2
+    ASK_USER_ERROR_POLICY = 3
+
     def __init__(self, title=''):
         QObject.__init__(self)
         Lockable.__init__(self)
@@ -224,6 +229,8 @@ class Operation(QObject, Lockable):
         self.__state.title = title
         self.__waitUserCallback = Condition(self.lock)
         self.__subOperationStack = []
+
+        self.__errorPolicy = self.DEFAULT_ERROR_POLICY
 
     @property
     def title(self):
@@ -249,6 +256,17 @@ class Operation(QObject, Lockable):
     def requestDoWork(self, value):
         with self.lock:
             self.__requestDoWork = value
+
+    @property
+    def errorPolicy(self):
+        with self.lock:
+            return self.__errorPolicy
+
+    @errorPolicy.setter
+    def errorPolicy(self, new_policy):
+        with self.lock:
+            if self.__errorPolicy != new_policy:
+                self.__errorPolicy = new_policy
 
     def sendCommand(self, command):
         """Send command to operation code. Operation can process commands in two ways:
@@ -607,6 +625,46 @@ class Operation(QObject, Lockable):
         with self.lock:
             self.__callbackAccepted, self.__callbackResult = accepted, result
             self.__waitUserCallback.notify_all()
+
+    def fatalError(self, error):
+        """Get the action operation should take for when error occupied. Depending on
+        errorPolicy value this method can demand to ignore error, cancel operation or
+        ask user to make decision. When errorPolicy is ASK_USER_ERROR_POLICY and gui callback
+        with question messagebox was rejected, policy given in user settings will be used.
+        Return True if operation should be cancelled, False otherwise.
+        """
+
+        with self.lock:
+            if self.errorPolicy == self.ASK_USER_ERROR_POLICY:
+                def ask_user_callback(error, level):
+                    from organica.gui.mainwin import globalMainWindow
+
+                    answer = QMessageBox.question(globalMainWindow(), tr('Error'),
+                        tr('During executing operation {0} ({1}), the following error has been ' \
+                            'occupied:\n{2}\n\nDo you want to try to cancel this operation?') \
+                            .format(self.state.title, self.state.progressText, str(error)),
+                            QMessageBox.Yes | QMessageBox.No)
+                    return asnwer == QMessageBox.Yes
+
+                from organica.utils.settings import globalSettings
+
+                ans = self.requestGuiCallback(ask_user_callback, error=error, level=level)
+                return ans[1] if ans[0] else globalSettings()['default_error_policy']
+            elif self.errorPolicy == self.DEFAULT_ERROR_POLICY:
+                from organica.utils.settings import globalSettings
+
+                return globalSettings()['default_error_policy']
+            else:
+                return self.errorPolicy == self.FAIL_ERROR_POLICY
+
+    def processError(self, errmsg):
+        with self.lock:
+            if self.fatalError(errmsg):
+                self.addMessage(errmsg, logging.ERROR)
+                return True
+            else:
+                self.addMessage(errmsg, logging.WARNING)
+                return False
 
 
 class WrapperOperation(Operation):

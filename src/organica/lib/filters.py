@@ -39,7 +39,7 @@ class Wildcard(object):
         """
 
         if isinstance(text, Wildcard):
-            return self.pattern.casefold() == text.pattern.casefold()
+            return helpers.cicompare(self.pattern, text.pattern)
         elif isinstance(text, str):
             return self.isEqual(text)
         else:
@@ -411,7 +411,7 @@ class _Tag_Class(object):
         elif isinstance(self.tagClass, Wildcard):
             return self.tagClass == tag.className
         else:
-            return tag.className.casefold() == self.tagClass.casefold()
+            return helpers.cicompare(tag.className, self.tagClass)
 
     def generateSql(self):
         if isinstance(self.tagClass, (Identity, TagClass)):
@@ -456,7 +456,7 @@ class _Tag_Text(object):
         if isinstance(self.text, Wildcard):
             return self.text == tag.value.text
         else:
-            return self.text.casefold() == tag.value.text.casefold()
+            return helpers.cicompare(self.text, tag.value.text)
 
     def generateSql(self):
         return 'value_type = {0} and {1} collate strict_nocase' \

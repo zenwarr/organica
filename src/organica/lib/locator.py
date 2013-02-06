@@ -1,4 +1,5 @@
 from PyQt4.QtCore import QUrl
+import organica.utils.helpers as helpers
 
 
 class Locator(object):
@@ -28,7 +29,7 @@ class Locator(object):
 
     @property
     def isStorageFile(self, file_path):
-        return self.scheme().casefold() == self.MANAGED_FILES_SCHEME.casefold()
+        return helpers.cicompare(self.scheme(), self.MANAGED_FILES_SCHEME)
 
     @property
     def url(self):

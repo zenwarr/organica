@@ -1,156 +1,148 @@
-import os, logging, json
-from organica.lib.locator import Locator
-from PyQt4.QtCore import QObject, pyqtSignal, QSettings
+import os
+import json
 
-logger = logging.getLogger(__name__)
+from organica.utils.operations import globalOperationContext
+from organica.utils.helpers import tr
+
 
 class StorageError(Exception):
     pass
 
-class PathTemplate:
-    def __init__(self, elems = None, fname = ''):
-        self.elements = elems if elems else []
-        self.filename = fname
 
-class LocalStorage(QObject):
+class LocalStorage(object):
+    STORAGE_METADATA_FILENAME = 'storage.meta'
+
+    SkipErrorPolicy = 0
+    FailErrorPolicy = 1
+    AskErrorPolicy = 2
+
     def __init__(self):
-        QObject.__init__()
-        self.__lib = None
-        self.__rootDir = ''
-        self.__config = {}
+        self.__rootDirectory = ''
+        self.__metas = {}
 
     @staticmethod
-    def loadStorage(lib):
+    def fromDirectory(root_dir):
+        """Create storage initialized from given directory. Read storage meta-information file.
+        """
+
+        if not os.path.exists(root_dir) or not os.path.isdir(root_dir):
+            raise OSError('root directory {0} not found'.format(root_dir))
+
         stor = LocalStorage()
-        stor.__lib = lib
+        stor.__rootDirectory = root_dir
 
-        if not lib.testMeta('storage_use'):
-            raise StorageError('library does not uses storage')
-
-        root_dir = lib.getMeta('storage_root')
-        if root_dir is None:
-            raise StorageError('library has no information about storage location')
-
-        # storage path may be absolute or relative to library file directory
-        if not os.path.isabs(root_dir):
-            root_dir = os.path.join(os.path.dirname(lib.databaseFilename), root_dir)
-
-        if not os.path.isdir(root_dir):
-            raise StorageError('storage directory {0} not found'.format(root_dir))
-
-        stor.__rootDir = os.path.normpath(root_dir)
-
-        # read storage config
-        config_file = os.path.join(root_dir, 'storage.conf')
-        if not os.path.exists(config_file) or not os.access(config_file, os.R_OK):
-            raise StorageError('storage config file {0} does not exists or protected'
-                               .format(config_file))
-
-        with open(config_file, 'rt') as cf:
-            stor.__config = json.load(cf)
-
-        return stor
-
-    @staticmethod
-    def createStorage(lib, root_dir):
-        stor = LocalStorage()
-        stor.__lib = lib
-        stor.__rootDir = os.path.normpath(root_dir)
-
-        if not os.path.exists(root_dir):
+        with open(stor.metafilePath, 'rt') as f:
             try:
-                os.makedirs(root_dir, exists_ok = True)
-            except OSerror as err:
-                raise StorageError('failed to init storage in {0}: {1}'.format(root_dir, err))
+                config = json.load(f)
+            except ValueError as err:
+                raise StorageError('failed to read storage meta-information: {0}'.format(err))
 
-        config_file = os.path.join(root_dir, 'storage.conf')
-        if os.path.exists(config_file):
-            # importing existing storage configuration
-            with open(config_file, 'rt') as cf:
-                json.load(cf)
-        else:
-            with open(config_file, 'w+t') as cf:
-                json.dump(stor.__config, ensure_ascii = False, indent = 4)
+            if config is not None or not isinstance(config, dict):
+                raise StorageError('failed to read storage meta-information: invalid file format')
 
-        lib.setMeta('storage_use')
-        lib.setMeta('storage_root', root_dir)
+            stor.__config = config or dict()
 
         return stor
-
-    def saveConfig(self):
-        config_file = os.path.join(self.__rootDir, 'storage.conf')
-        try:
-            with open(config_file, 'w+t') as cf:
-                json.dump(config_file, ensure_ascii = False, indent = 4)
-        except OSError as err:
-            raise StorageError('failed to save configuration in {0}'.format(config_file))
 
     @property
-    def lib(self):
-        return self.__lib
+    def metafilePath(self):
+        return os.path.join(self.rootDirectory, self.STORAGE_METADATA_FILENAME)
+
+    def saveMetafile(self):
+        """Writes meta into metafile. All existing information in metafile will be overwritten.
+        """
+
+        with open(self.metafilePath, 'w+t') as f:
+            json.dump(f, ensure_ascii=False, indent=4)
 
     @property
     def rootDirectory(self):
-        return self.__rootDir
+        return self.__rootDirectory
 
-    @property
-    def pathTemplate(self):
-        return self.__config['path_template'] if 'path_template' in self.__config else ''
-
-    @pathTemplate.setter
-    def pathTemplate(self, value):
-        self.__config['path_template'] = value
-        self.__saveConfig()
-
-    def isInStorage(self, file_path):
+    def addFile(self, source_filename, target_path, remove_source=False, error_policy=SkipErrorPolicy):
+        """Copy or move source file to storage directory with :target_path:
+        :target_path: should be path relative to storage root directory and contain basename. Fails if
+        destination exists (use updateFile instead).
+        Can add files as well as directories will all its contents.
+        Supports operations.
         """
-        Checks if file identified by given absolute file is located under
-        storage root directory.
-        """
-        if isinstance(file_path, Locator):
-            file_path = file_path.absoluteFilePath
-        if file_path is None or len(file_path) == 0:
-            return False
 
-        if not isabs(file_path): raise ArgumentError('absolute path expected')
-        file_path = os.path.normpath(file_path)
-        common_pref = os.path.commonprefix(self.__rootDir, file_path) == self.__rootDir
-        return os.path.exists(common_pref) and os.path.samefile(self.__rootDir, common_pref)
+        if os.path.isabs(target_path):
+            raise ValueError('invalid argument: target_path should be relative')
 
-    def isManaged(self, file_path):
-        """
-        Checks if file is managed
-        """
-        return self.isInStorage(file_path) and \
-               self.lib.object(ObjectFilter.locator(Locator.managedFile(file_path, self)))
+        if not os.path.exists(source_filename):
+            raise OSError('source file {0} not found'.format(source_filename))
 
-    def addFile(self, obj):
-        """
-        Add file to storage, flushing object on success
-        """
-        if obj is None or not obj.isFlushed:
-            raise ArgumentError('invalid object')
+        source_basename = os.path.basename(source_filename)
 
-        with OperationContext.newOperation('adding files to storage') as op:
-            if obj.locator.isManagedFile and obj.locator.storage == self:
-                op.addMessage('file {0} is in storage already'.format(obj.locator))
-                return
+        # get absolute path of destination file
+        absolute_dest_path = os.path.join(self.rootDirectory, target_path)
 
-            source_file = obj.locator.absoluteFilePath
-            if not os.path.exists(source_file):
-                raise StorageError('source file {0} does not exists'.format(source_file))
+        # ensure that destination does not exists
+        if os.path.exists(absolute_dest_path):
+            raise OSError('destination {0} already exists'.format(absolute_dest_path))
 
-            # generate path to which we should copy file
-            dest = self.generatePath(obj)
-            if dest is None:
-                raise StorageError('failed to generate path to {0} file in storage'.format(source_file))
+        # ensure destination path directories are created
+        if not os.path.exists(os.path.dirname(absolute_dest_path)):
+            os.makedirs(os.path.dirname(absolute_dest_path), exist_ok=True)
 
-            copy_operation = CopyFilesOperation(source_file, dest)
-            op.executeSubOperation(copy_operation)
-            if op.state.status != Operation.COMPLETED:
-                raise StorageError('failed to copy from {0} to storage ({0})'.format(source_file, dest))
+        # if source is a link, do not resolve it, but just create new one in target directory and return
+        if os.path.islink(source_filename):
+            link_target = os.readlink(source_filename)
+            # replace relative link with absolute one
+            if not os.path.isabs(link_target):
+                link_target = os.path.join(os.path.dirname(source_filename), link_target)
+            os.symlink(link_target, absolute_dest_path)
+            return
 
-            obj.locator = Locator.managedFile(dest, self)
-            obj.flush()
+        with globalOperationContext().newOperation('copying {0}'.format(source_basename)) as operation:
+            def do_add(src_path, dest_path, progress_increment):
+                import shutil
 
-    def generatePath(self, source_object):
+                if os.path.isdir(src_path):
+                    try:
+                        os.mkdir(dest_path)
+
+                        # iterate over all files in source directory and copy it to dest
+                        names = os.path.listdir(src_path)
+                        for name in names:
+                            src_filename = os.path.join(src_path, name)
+                            if not do_add(src_filename, os.path.join(dest_path, name), progress_increment):
+                                return True
+
+                        shutil.copystat(src_path, dest_path)
+                    except Exception as err:
+                        errmsg = 'failed to create directory {0}: {1}'.format(dest_path, err)
+                        if not operation.processError(errmsg):
+                            return True
+                else:
+                    operation.setProgressText(tr('Copying {0}'.format(os.path.basename(src_path))))
+
+                    try:
+                        if remove_source:
+                            shutil.move(src_filename, dest_path)
+                        else:
+                            shutil.copy2(src_filename, dest_path)
+                    except Exception as err:
+                        errmsg = 'failed to copy file {0}: {1}'.format(src_filename, err)
+                        if not operation.processError(errmsg):
+                            return True
+
+                    operation.setProgress(operation.state.progress + progress_increment)
+
+            # count all files we should copy to provide correct progress values
+            if os.path.isdir(source_filename):
+                files_count = sum([len(e[2]) for e in os.walk(source_filename)])
+            else:
+                files_count = 1
+
+            do_add(source_filename, absolute_dest_path, remove_source, 100 / files_count)
+
+    def getMeta(self, meta_name, default=None):
+        return self.__config.get(meta_name, default)
+
+    def setMeta(self, meta, value):
+        self.__config[meta] = value
+
+    def removeMeta(self, meta_name):
+        self.__config = dict((key, self.__config[key]) for key in self.__config.keys() if meta_name != key)

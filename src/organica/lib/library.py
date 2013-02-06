@@ -99,7 +99,7 @@ class Library(QObject, Lockable):
         To create in-memory database, use createLibrary instead.
         """
 
-        if filename.casefold() == ':memory:':
+        if filename.lower() == ':memory:':
             raise LibraryObject('Library.createLibrary should be used to create in-memory databases')
 
         loaded_lib = Library._findOpenLibrary(filename)
@@ -134,7 +134,7 @@ class Library(QObject, Lockable):
         raised. :filename: can be ":memory:" - in this case in-memory database will be created.
         """
 
-        if filename.casefold() != ':memory:':
+        if filename.lower() != ':memory:':
             if Library._findOpenLibrary(filename):
                 raise LibraryError('failed to create library {0}: database already in use')
 
@@ -207,7 +207,7 @@ class Library(QObject, Lockable):
         """
 
         with self.lock:
-            return self._meta.get(meta_name.casefold(), default)
+            return self._meta.get(meta_name.lower(), default)
 
     def testMeta(self, name_mask):
         """Test if meta with name that matches given mask exists in database.
@@ -217,14 +217,14 @@ class Library(QObject, Lockable):
             if isinstance(name_mask, Wildcard):
                 return any((name_mask == x for x in self._meta))
             else:
-                return name_mask.casefold() in self._meta
+                return name_mask.lower() in self._meta
 
     def setMeta(self, meta_name, meta_value):
         """Writes meta with :meta_name: and :meta_value: to database. :meta_value: is converted to
         string before saving. Meta name should be correct identifier (just like tag class name).
         """
 
-        meta_name = meta_name.casefold()
+        meta_name = meta_name.lower()
         meta_value = str(meta_value)
         with self.lock:
             if not isCorrectIdent(meta_name):
@@ -254,7 +254,7 @@ class Library(QObject, Lockable):
                             del self._meta[k]
             else:
                 with self.transaction() as c:
-                    name_mask = name_mask.casefold()
+                    name_mask = name_mask.lower()
                     c.execute('delete from organica_meta where name = ?', (str(name_mask), ))
                     del self._meta[str(name_mask)]
             self.metaChanged.emit(dict(self._meta))
@@ -278,7 +278,7 @@ class Library(QObject, Lockable):
                     if not isCorrectIdent(r[0]):
                         logger.warning('invalid meta name "{0}", ignored'.format(r[0]))
                     else:
-                        self._meta[r[0].casefold()] = r[1]
+                        self._meta[r[0].lower()] = r[1]
 
     def __loadTagClasses(self):
         """Load (or reload) all tag classes from database"""
@@ -293,7 +293,7 @@ class Library(QObject, Lockable):
                         logger.warn('invalid tag class "{0}" (#{1})'.format(r[1], r[0]))
                         continue
                     tc.identity = Identity(self, int(r[0]))
-                    self._tagClasses[tc.name.casefold()] = tc
+                    self._tagClasses[tc.name.lower()] = tc
 
     def tagClass(self, tag_class):
         """Get tag class with given identity or name. Another use is to get actual value of flushed
@@ -308,7 +308,7 @@ class Library(QObject, Lockable):
                 else:
                     return None
             else:
-                return deepcopy(self._tagClasses.get(tag_class.casefold(), None))
+                return deepcopy(self._tagClasses.get(tag_class.lower(), None))
 
     def tagClasses(self, name_mask=Wildcard('*')):
         """Get classes with names that matches given mask.
@@ -343,7 +343,7 @@ class Library(QObject, Lockable):
                 tc.identity = Identity(self, c.lastrowid)
 
             # update cached
-            self._tagClasses[tc.name.casefold()] = deepcopy(tc)
+            self._tagClasses[tc.name.lower()] = deepcopy(tc)
             return tc
 
     getOrCreateTagClass = createTagClass
@@ -375,7 +375,7 @@ class Library(QObject, Lockable):
                 c.execute('delete from tag_classes where id = ?', (tag_class.id, ))
 
             # update cache
-            del self._tagClasses[r_class.name.casefold()]
+            del self._tagClasses[r_class.name.lower()]
 
     def _tagsFromQuery(self, cursor):
         """Get tag list from query results. Assume that rows are (id, class_id, value_type, value)
@@ -842,8 +842,9 @@ class Library(QObject, Lockable):
 
     def _connect(self, filename):
         def strict_nocase_collation(left, right):
-            l = left.casefold()
-            r = right.casefold()
+            conv_method = 'casefold' if hasattr(left, 'casefold') else 'lower'
+            l = getattr(left, conv_method)()
+            r = getattr(right, conv_method)()
             if l == r:
                 return 0
             elif l < r:

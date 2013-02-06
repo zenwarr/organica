@@ -22,7 +22,7 @@ class LibraryEnvironment(object):
         self.ui = None
 
 
-LIBRARY_DIALOG_FILTER = ''
+LIBRARY_DIALOG_FILTER = 'Organica libraries (*.orl);;All files (*.*)'
 logger = logging.getLogger(__name__)
 
 
@@ -145,8 +145,8 @@ class MainWindow(QMainWindow):
 
             self.workspace.append(newenv)
 
-            if hasattr(newenv.profile, 'onLoad'):
-                newenv.profile.onLoad(newenv)
+            if hasattr(newenv.profile, 'createProfileEnviron'):
+                newenv.profileEnviron = profile.createProfileEnviron(newenv)
         except Exception as err:
             self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
 
@@ -180,12 +180,12 @@ class MainWindow(QMainWindow):
         if environ is None:
             return
 
-        if environ.profile is not None:
-            # save gui state
-            environ.lib.setMeta('splitterstate', str(environ.ui.splitter.saveState().toHex(), encoding='ascii'))
+        # save gui state
+        environ.lib.setMeta('splitterstate', str(environ.ui.splitter.saveState().toHex(), encoding='ascii'))
 
-            if hasattr(environ.profile, 'onUnload'):
-                environ.profile.onUnload()
+        if environ.profile is not None:
+            if environ.profileEnviron is not None and hasattr(environ.profileEnviron, 'onUnload'):
+                environ.profileEnviron.onUnload()
 
         self.workspace = [env for env in self.workspace if env is not environ]
 
@@ -254,6 +254,10 @@ class MainWindow(QMainWindow):
         environ = self.environFromTab(tab_index)
         if environ is not None:
             self.closeEnviron(environ)
+
+    def createNodeFromUrl(self, display_name, url, environ):
+        if environ is not None and environ.lib is not None:
+            environ.lib.createNode(display_name, url)
 
 
 _mainWindow = None

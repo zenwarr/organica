@@ -57,6 +57,16 @@ class TopicNameCombo(QComboBox):
                     self.environ.ui.topicsView.setCurrentIndex(indexes[0])
 
 
+class GenericProfileEnviron(object):
+    def __init__(self, environ):
+        self.libEnviron = environ
+        self.topicWidget = TopicNameCombo(environ, environ.ui)
+        environ.ui.topicsView.layout().addWidget(self.topicWidget)
+
+    def onUnload(self):
+        self.topicWidget.onUnload()
+
+
 class GenericProfile(object):
     extensionUuid = ''
     group = 'profile'
@@ -65,12 +75,8 @@ class GenericProfile(object):
                   'manage classes, tags and nodes'
     uuid = GENERIC_PROFILE_UUID
 
-    def onLoad(self, environ):
-        self.topicWidget = TopicNameCombo(environ, environ.ui)
-        environ.ui.topicsView.layout().addWidget(self.topicWidget)
-
-    def onUnload(self):
-        self.topicWidget.onUnload()
+    def createProfileEnviron(self, environ):
+        env = GenericProfileEnviron(environ)
 
 
 def registerProfile():

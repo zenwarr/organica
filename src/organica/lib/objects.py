@@ -228,7 +228,7 @@ class TagValue(object):
 
         # custom comparision for text - should ignore case
         if self.valueType == self.TYPE_TEXT:
-            return self.text.casefold() == other.text.casefold()
+            return helpers.cicompare(self.text, other.text)
         else:
             traits = self._type_traits()[self.valueType]
             return getattr(self, traits[1]) == getattr(other, traits[1])
@@ -353,7 +353,7 @@ class TagClass(LibraryObject):
         if self.identity != other.identity and self.isFlushed and other.isFlushed:
             return False
 
-        return self.name.casefold() == other.name.casefold() and \
+        return helpers.cicompare(self.name, other.name) and \
                self.valueType == other.valueType and \
                self.hidden == other.hidden
 
