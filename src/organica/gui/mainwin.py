@@ -100,11 +100,20 @@ class MainWindow(QMainWindow):
         if state and isinstance(geom, str):
             self.restoreState(QByteArray.fromHex(state))
 
+        # restore saved workspace
+        saved_workspace = qs['saved_workspace']
+        if saved_workspace and isinstance(saved_workspace, (list, tuple)):
+            for lib_path in saved_workspace:
+                self.loadLibraryFromFile(lib_path)
+
     def closeEvent(self, closeEvent):
+        # save workspace to be restored on next launch
+        qs = globalQuickSettings()
+        qs['saved_workspace'] = [env.lib.databaseFilename for env in self.workspace]
+
         while self.workspace:
             self.closeEnviron(self.workspace[0])
 
-        qs = globalQuickSettings()
         qs['mainWindow_geometry'] = str(self.saveGeometry().toHex(), encoding='ascii')
         qs['mainWindow_state'] = str(self.saveState().toHex(), encoding='ascii')
 
