@@ -13,6 +13,7 @@ from organica.utils.lockable import Lockable
 from organica.lib.filters import Wildcard, generateSqlCompare, TagQuery, NodeQuery
 from organica.lib.objects import (Node, Tag, TagClass, TagValue, isCorrectIdent, Identity,
                                   ObjectError, get_identity)
+from organica.lib.storage import LocalStorage
 
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,7 @@ class Library(QObject, Lockable):
         self._tags = {}  # map by id
         self._nodes = {}  # map by id
         self._trans_states = []
+        self._storage = None
 
     def __del__(self):
         self.disconnect()
@@ -122,6 +124,17 @@ class Library(QObject, Lockable):
         # in memory for quick access
         lib.__loadMeta()
         lib.__loadTagClasses()
+
+        # load storage if any
+        if lib.testMeta('storage_path'):
+            storage_path = lib.getMeta('storage_path')
+            if storage_path:
+                # relative paths are resolved basing on library path
+                if not os.path.isabs(storage_path):
+                    storage_path = os.path.join(os.path.dirname(lib.databaseFilename), storage_path)
+                if not os.path.exists(storage_path):
+                    logger.warning('assotiated storage directory does not exist: {0}'.format(storage_path))
+                lib._storage = LocalStorage.fromDirectory(storage_path)
 
         with Library._loaded_libraries_lock:
             Library._loaded_libraries.append(lib)
@@ -288,7 +301,7 @@ class Library(QObject, Lockable):
                 c.execute("select id, name, value_type, hidden from tag_classes")
                 for r in c.fetchall():
                     try:
-                        tc = TagClass(Idenitty(self, int(r[0])), str(r[1]), int(r[2]), bool(r[3]))
+                        tc = TagClass(Identity(self, int(r[0])), str(r[1]), int(r[2]), bool(r[3]))
                     except ObjectError:
                         logger.warn('invalid tag class "{0}" (#{1})'.format(r[1], r[0]))
                         continue
@@ -462,7 +475,7 @@ class Library(QObject, Lockable):
 
             with self.transaction() as c:
                 c.execute('insert into tags(class_id, value_type, value) values(?, ?, ?)',
-                          (int(tag_class.id), int(tag_class.valueType), value.databaseForm()))
+                          (int(tag_class.id), int(tag_class.valueType), str(value.databaseForm)))
                 tag.identity = Identity(self, c.lastrowid)
 
             # encache it
@@ -491,7 +504,7 @@ class Library(QObject, Lockable):
                 if old_tag != tag_to_flush:
                     with self.transaction() as c:
                         c.execute('update tags set value = ?, class_id = ? where id = ?',
-                                  (tag_to_flush.value.databaseForm(), tag_to_flush.tagClass.id, tag_to_flush.id))
+                                  (tag_to_flush.value.databaseForm, tag_to_flush.tagClass.id, tag_to_flush.id))
 
                         if tag_to_flush.tagClass != old_tag.tagClass:
                             c.execute('update links set tag_class_id = ? where tag_id = ?',
@@ -885,3 +898,29 @@ class Library(QObject, Lockable):
     @name.setter
     def name(self, new_name):
         self.setMeta('name', new_name)
+
+    @property
+    def storage(self):
+        with self.lock:
+            return self._storage
+
+    @storage.setter
+    def storage(self, new_storage):
+        with self.lock:
+            if self._storage == new_storage:
+                return
+
+            self._storage = new_storage
+            if self._storage is not None and self._storage.rootDirectory:
+                self.setMeta('storage_path', new_storage.rootDirectory)
+            else:
+                self.removeMeta('storage_path')
+
+    @property
+    def profileUuid(self):
+        with self.lock:
+            return self.getMeta('profile') if self.testMeta('profile') else ''
+
+    @profileUuid.setter
+    def profileUuid(self, new_uuid):
+        self.setMeta('profile', new_uuid)

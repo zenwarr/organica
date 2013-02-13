@@ -274,8 +274,8 @@ class FormatString:
                 url
                 scheme
                 path
-                file
-                basename
+                name - file or directory name
+                basename - for files, this is file name without path and extension
                 ext (or extension)
             Default value is 'url'
 
@@ -352,7 +352,7 @@ class FormatString:
             return str(tag_value.number)
         elif tag_value.valueType == TagValue.TYPE_LOCATOR:
             url = tag_value.locator.url
-            mode = block.params.get('locator', 'url')
+            mode = block.getParam('locator', 'url')
             mode = mode.lower()
             if mode == 'url':
                 return url.toString()
@@ -360,8 +360,12 @@ class FormatString:
                 return url.scheme()
             elif mode == 'path':
                 return url.toLocalFile if url.isLocalFile() else url.path()
-            elif mode == 'file':
-                return QFileInfo(url.toLocalFile()).fileName()
+            elif mode == 'name':
+                # get not fileName(), but last component of path.
+                path = url.toLocalFile()
+                if path.endswith('/') or path.endswith('\\'):
+                    path = path[:-1]
+                return QFileInfo(path).fileName()
             elif mode == 'basename':
                 return QFileInfo(url.toLocalFile()).baseName()
             elif mode == 'ext' or mode == 'extension':

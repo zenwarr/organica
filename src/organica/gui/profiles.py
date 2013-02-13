@@ -4,7 +4,7 @@ from organica.utils.extend import globalObjectPool
 class ProfileManager(object):
     @staticmethod
     def genericProfile():
-        from organica.gui.genericprofile import GENERIC_PROFILE_UUID
+        from organica.generic.profile import GENERIC_PROFILE_UUID
         return ProfileManager.getProfile(GENERIC_PROFILE_UUID)
 
     @staticmethod

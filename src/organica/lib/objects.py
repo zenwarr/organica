@@ -67,6 +67,7 @@ class TagValue(object):
                   and INTEGER referencing row from 'nodes' table in SQLite database.
         - NONE: an empty value. Mapped to Python None and SQLite NULL. Value of
                   this type can be assigned to tags with any value type.
+    Note that all types used as values are immutable.
     """
 
     # constants for value types
@@ -103,7 +104,7 @@ class TagValue(object):
                 TagValue.TYPE_NONE: ('None', '', (type(None), ), None, None),
                 TagValue.TYPE_TEXT: ('Text', 'text', (str, ), None, None),
                 TagValue.TYPE_NUMBER: ('Number', 'number', (int, float), None, None),
-                TagValue.TYPE_LOCATOR: ('Locator', 'locator', (Locator, ), (lambda l: l.databaseForm()),
+                TagValue.TYPE_LOCATOR: ('Locator', 'locator', (Locator, ), (lambda l: l.databaseForm),
                                (lambda c, d: Locator(d))),
                 TagValue.TYPE_NODE_REFERENCE: ('Object reference', 'objectReference', (Identity, Node),
                                         (lambda obj: obj.id), dec_object)

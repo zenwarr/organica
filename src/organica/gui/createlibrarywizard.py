@@ -1,7 +1,7 @@
 import os
 
 from PyQt4.QtGui import QWizard, QWizardPage, QLineEdit, QFormLayout, QLabel, \
-                        QListView, QMessageBox, QVBoxLayout, QFileDialog
+                        QListView, QMessageBox, QVBoxLayout, QFileDialog, QCheckBox, QWidget
 from PyQt4.QtCore import QFileInfo, pyqtProperty
 
 from organica.utils.helpers import tr
@@ -18,7 +18,7 @@ class CreateLibraryWizard(QWizard):
         self.setWindowTitle(tr('Create library'))
         self.__lib = None
 
-        for page_type in (LibraryNamePage, ProfilePage, DatabasePage):
+        for page_type in (LibraryNamePage, ProfilePage, DatabasePage, StoragePage):
             self.addPage(page_type(self))
 
     @property
@@ -28,6 +28,8 @@ class CreateLibraryWizard(QWizard):
         return self.__lib
 
     def __createLibrary(self):
+        from organica.lib.storage import LocalStorage
+
         database_path = self.field('database_filename')
         if os.path.exists(database_path):
             os.remove(database_path)
@@ -35,6 +37,15 @@ class CreateLibraryWizard(QWizard):
         newlib = Library.createLibrary(database_path)
         newlib.name = self.field('library_name')
         newlib.setMeta('profile', self.field('profile_uuid'))
+
+        if self.field('use_storage'):
+            storage = LocalStorage.fromDirectory(self.field('storage_path'))
+            storage.setMeta('path_template', self.field('path_template'))
+            try:
+                storage.saveMetafile()
+            except Exception as err:
+                QMessageBox.warning(self, tr('Error'), tr('Failed to write storage metafile: {0}'.format(err)))
+            newlib.storage = storage
 
         return newlib
 
@@ -138,3 +149,66 @@ class DatabasePage(QWizardPage):
 
     def __onPathChanged(self, new_path):
         self.completeChanged.emit()
+
+
+class StoragePage(QWizardPage):
+    def __init__(self, parent):
+        QWizardPage.__init__(self, parent)
+
+        self.setTitle(tr('Local storage'))
+        self.setSubTitle(tr('Storage is local folder where all files you add to library will be stored. ' \
+                            'You can create storage for this library by checking box below.'))
+
+        self.chkUseStorage = QCheckBox(tr('Use storage'), self)
+        self.chkUseStorage.clicked.connect(self.completeChanged)
+
+        self.storageWidget = QWidget(self)
+        self.storageWidget.hide()
+        self.chkUseStorage.toggled.connect(self.storageWidget.setVisible)
+
+        self.pathEdit = PathEditWidget(self)
+        self.pathEdit.fileDialog.setFileMode(QFileDialog.Directory)
+        self.pathEdit.pathChanged.connect(self.completeChanged)
+
+        self.pathTemplateEdit = QLineEdit(self)
+        self.pathTemplateEdit.textChanged.connect(self.completeChanged)
+
+        self.registerField('use_storage', self, 'useStorage')
+        self.registerField('storage_path', self, 'storagePath')
+        self.registerField('path_template', self, 'pathTemplate')
+
+        layout = QFormLayout(self.storageWidget)
+        layout.addRow(tr('Storage directory:'), self.pathEdit)
+        layout.addRow(tr('Path template:'), self.pathTemplateEdit)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.chkUseStorage)
+        layout.addWidget(self.storageWidget)
+
+    @pyqtProperty(bool)
+    def useStorage(self):
+        return self.chkUseStorage.isChecked()
+
+    @pyqtProperty(str)
+    def storagePath(self):
+        return self.pathEdit.path
+
+    @pyqtProperty(str)
+    def pathTemplate(self):
+        return self.pathTemplateEdit.text()
+
+    def isComplete(self):
+        return bool(not self.chkUseStorage.isChecked() or (self.pathEdit.path and self.pathTemplateEdit.text()))
+
+    def validatePage(self):
+        from organica.lib.storage import LocalStorage
+
+        # check if storage directory choosen is storage already
+        if LocalStorage.isDirectoryStorage(self.pathEdit.path):
+            ans = QMessageBox.question(self, tr('Directory is storage'), tr('It seems like choosen directory already ' \
+                             'used as storage. Old parameters will be imported (remove storage.meta file to ' \
+                             'reset storage parameters). Really use this directory?'),
+                             QMessageBox.Yes | QMessageBox.No)
+            return ans != QMessageBox.No
+        else:
+            return True

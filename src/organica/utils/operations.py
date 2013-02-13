@@ -8,6 +8,7 @@ from PyQt4.QtGui import QApplication, QMessageBox
 
 from organica.utils.lockable import Lockable
 import organica.utils.constants as constants
+from organica.utils.helpers import tr
 
 
 class OperationError(Exception):
@@ -208,10 +209,10 @@ class Operation(QObject, Lockable):
     RUNMODE_THIS_THREAD = 1
     RUNMODE_NEW_THREAD = 2
 
-    DEFAULT_ERROR_POLICY = 0
-    IGNORE_ERROR_POLICY = 1
-    FAIL_ERROR_POLICY = 2
-    ASK_USER_ERROR_POLICY = 3
+    DEFAULT_ERROR_POLICY = 'default'
+    IGNORE_ERROR_POLICY = 'ignore'
+    FAIL_ERROR_POLICY = 'fail'
+    ASK_USER_ERROR_POLICY = 'ask'
 
     def __init__(self, title=''):
         QObject.__init__(self)
@@ -634,28 +635,36 @@ class Operation(QObject, Lockable):
         Return True if operation should be cancelled, False otherwise.
         """
 
+        from organica.utils.settings import globalSettings
+
         with self.lock:
+            def ask_user(operation, error):
+                ans = operation.requestGuiCallback(operation.askUserOnError, error=error)
+                return ans[1] if ans[0] else globalSettings()['default_error_policy'] != operation.IGNORE_ERROR_POLICY
+
             if self.errorPolicy == self.ASK_USER_ERROR_POLICY:
-                def ask_user_callback(error, level):
-                    from organica.gui.mainwin import globalMainWindow
-
-                    answer = QMessageBox.question(globalMainWindow(), tr('Error'),
-                        tr('During executing operation {0} ({1}), the following error has been ' \
-                            'occupied:\n{2}\n\nDo you want to try to cancel this operation?') \
-                            .format(self.state.title, self.state.progressText, str(error)),
-                            QMessageBox.Yes | QMessageBox.No)
-                    return asnwer == QMessageBox.Yes
-
-                from organica.utils.settings import globalSettings
-
-                ans = self.requestGuiCallback(ask_user_callback, error=error, level=level)
-                return ans[1] if ans[0] else globalSettings()['default_error_policy']
+                return ask_user(self, error)
             elif self.errorPolicy == self.DEFAULT_ERROR_POLICY:
-                from organica.utils.settings import globalSettings
-
-                return globalSettings()['default_error_policy']
+                pol = globalSettings()['default_error_policy']
+                if pol == self.ASK_USER_ERROR_POLICY:
+                    return ask_user(self, error)
+                else:
+                    return pol != self.IGNORE_ERROR_POLICY
             else:
-                return self.errorPolicy == self.FAIL_ERROR_POLICY
+                return self.errorPolicy != self.IGNORE_ERROR_POLICY
+
+    def askUserOnError(self, error):
+        from organica.gui.mainwin import globalMainWindow
+
+        error_text = 'During executing operation<br><b>' + self.state.title
+        if self.state.progressText:
+            error_text += ' (' + self.state.progressText + ') '
+        error_text += '</b><br>the following error occupied:<br><br><b>' + str(error)
+        error_text += '</b><br><br>Do you want to try to cancel this operation?'
+
+        answer = QMessageBox.question(globalMainWindow(), tr('Operation error'),
+                                      error_text, QMessageBox.Yes | QMessageBox.No)
+        return answer == QMessageBox.Yes
 
     def processError(self, errmsg):
         with self.lock:

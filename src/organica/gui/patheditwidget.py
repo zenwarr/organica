@@ -1,7 +1,10 @@
+import os
+
 from PyQt4.QtGui import QWidget, QHBoxLayout, QLineEdit, QToolButton, QFileDialog
 from PyQt4.QtCore import pyqtSignal
 
 from organica.utils.helpers import tr
+from organica.utils.settings import globalQuickSettings
 
 
 class PathEditWidget(QWidget):
@@ -26,11 +29,15 @@ class PathEditWidget(QWidget):
         self.setLayout(layout)
 
     def showDialog(self):
+        qs = globalQuickSettings()
+
         self.fileDialog.setParent(self)
+        self.fileDialog.setDirectory(qs['lastfiledialogpath'])
 
         if self.fileDialog.exec_() == QFileDialog.Accepted:
             files = self.fileDialog.selectedFiles()
             if files:
+                qs['lastfiledialogpath'] = files[0]
                 self.pathEdit.setText(files[0])
 
     @property

@@ -80,7 +80,7 @@ class Application(QApplication):
         elif sys.platform.startswith('darwin'):
             constants.data_dir = os.path.expanduser('~/Library/Application Support/Organica')
         else:
-            constants.data_dir = os.path.expanduser('~/.config/organica')
+            constants.data_dir = os.path.expanduser('~/.organica')
 
         logger.debug('constants.data_dir = {0}'.format(constants.data_dir))
 
@@ -123,8 +123,8 @@ class Application(QApplication):
 
         #todo: redirect standart io channels
 
-        import organica.gui.genericprofile as genericprofile
-        genericprofile.registerProfile()
+        import organica.generic.profile
+        organica.generic.profile.register()
 
         globalPluginManager().loadPlugins()
 

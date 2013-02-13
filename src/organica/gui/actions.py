@@ -30,7 +30,10 @@ class Command(QAction):
 
     @validator.setter
     def validator(self, new_validator):
-        if new_validator == self.__validator:
+        if isinstance(new_validator, str):
+            new_validator = globalCommandManager().validator(new_validator)
+
+        if new_validator is self.__validator:
             return
 
         if self.__validator is not None:
@@ -39,7 +42,7 @@ class Command(QAction):
         self.__validator = new_validator
         self.setEnabled(not self.__validator or self.__validator.isActive)
         if self.__validator is not None:
-            self.__validator.connect(self.setEnabled)
+            self.__validator.activeChanged.connect(self.setEnabled)
 
 
 class ShortcutScheme(object):
@@ -270,7 +273,7 @@ class QToolBarCommandContainer(QToolBar):
 
 
 class StateValidator(QObject):
-    stateChanged = pyqtSignal(bool)
+    activeChanged = pyqtSignal(bool)
 
     def __init__(self, id):
         QObject.__init__(self)
@@ -298,7 +301,7 @@ class StandardStateValidator(StateValidator):
     def isActive(self, value):
         if self.__isActive != value:
             self.__isActive = value
-            self.stateChanged.emit(value)
+            self.activeChanged.emit(value)
 
     def activate(self):
         self.isActive = True

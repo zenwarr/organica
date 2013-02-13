@@ -109,7 +109,7 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(locator_website.passes(f))
         self.assertFalse(page_count.passes(f))
         self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = '{1}'".format(TagValue.TYPE_LOCATOR,
-                         loc.databaseForm()))
+                         loc.databaseForm))
 
         obj1, obj2 = Node('some_object'), Node('another_object')
         obj1.flush(lib)

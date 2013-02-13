@@ -504,7 +504,7 @@ class _Tag_Locator(object):
 
     def generateSql(self):
         return "value_type = {0} and value = '{1}'" \
-                .format(TagValue.TYPE_LOCATOR, self.locator.databaseForm())
+                .format(TagValue.TYPE_LOCATOR, self.locator.databaseForm)
 
     def qeval(self):
         return -1

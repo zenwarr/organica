@@ -11,5 +11,8 @@ if __name__ == '__main__':
     import organica.utils.constants as constants
     from organica.gui.application import runApplication
 
-    constants.app_dir = os.path.dirname(__file__)
+    # this will not work with something like py2exe, so we will need to create
+    # some workaround
+    constants.app_dir = os.path.dirname(os.path.realpath(__file__))
+
     runApplication()

@@ -1,3 +1,6 @@
+import json
+import os
+
 from PyQt4.QtCore import QCoreApplication
 
 
@@ -30,3 +33,19 @@ def cicompare(first, second):
         return first.casefold() == second.casefold()
     else:
         return first.lower() == second.lower()
+
+
+def readJsonFile(source):
+    if hasattr(source, 'fileno'):
+        source_size = os.fstat(source.fileno()).st_size
+        if source_size == 0:
+            return None
+
+    return json.load(source)
+
+
+def removeLastSlash(filename):
+    if not isinstance(filename, str) or not (filename.endswith('\\') or filename.endswith('/')):
+        return filename
+    else:
+        return filename[:-1]

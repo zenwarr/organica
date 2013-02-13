@@ -1,4 +1,5 @@
 import logging
+import os
 
 from PyQt4.QtGui import QMainWindow, QSplitter, QWidget, QIcon, QFileDialog, QMessageBox, \
                         QTabWidget, QVBoxLayout
@@ -7,12 +8,14 @@ from PyQt4.QtCore import QByteArray, QCoreApplication, QFileInfo, QDir
 from organica.utils.settings import globalQuickSettings
 import organica.gui.resources.qrc_main  # resource initialization
 from organica.gui.topicsview import TopicsView
-from organica.gui.actions import globalCommandManager, QMenuBarCommandContainer, QMenuCommandContainer
+from organica.gui.actions import globalCommandManager, QMenuBarCommandContainer, QMenuCommandContainer, \
+                        StandardStateValidator
 from organica.utils.helpers import tr
 from organica.gui.aboutdialog import AboutDialog
 from organica.gui.profiles import ProfileManager
 from organica.lib.library import Library
 from organica.gui.createlibrarywizard import CreateLibraryWizard
+from organica.lib.storage import LocalStorage
 
 
 class LibraryEnvironment(object):
@@ -42,12 +45,20 @@ class MainWindow(QMainWindow):
         self.__activeEnviron = None  # LibraryEnvironment object
 
         cm = globalCommandManager()
+
+        self.libraryActiveValidator = StandardStateValidator('LibraryActive')
+        self.libraryActiveValidator.isActive = False
+        cm.addValidator(self.libraryActiveValidator)
+
         cm.addNewCommand(self.loadLibrary, 'Workspace.LoadLibrary', tr('Load library'),
                                              default_shortcut='Ctrl+Shift+O')
         cm.addNewCommand(self.createLibrary, 'Workspace.CreateLibrary', tr('Create library'),
                                              default_shortcut='Ctrl+Shift+N')
         cm.addNewCommand(self.closeActiveEnviron, 'Workspace.CloseActiveLibrary', tr('Close library'),
                                              default_shortcut='Ctrl+Shift+W')
+        cm.addNewCommand(self.addFiles, 'Library.AddFiles', tr('Add files'), validator='LibraryActive',
+                                             default_shortcut='Ctrl+O')
+        cm.addNewCommand(self.addDir, 'Library.AddDirectory', tr('Add directory'), validator='LibraryActive')
         cm.addNewCommand(self.close, 'Application.Exit', tr('Exit'))
         cm.addNewCommand(self.showAbout, 'Application.ShowAbout', tr('About...'))
 
@@ -57,12 +68,19 @@ class MainWindow(QMainWindow):
         self.fileMenu = QMenuCommandContainer('FileMenu', tr('File'), self)
         cm.addContainer(self.fileMenu)
 
+        self.libraryMenu = QMenuCommandContainer('LibraryMenu', tr('Library'), self)
+        cm.addContainer(self.libraryMenu)
+
         self.fileMenu.appendCommand('Workspace.LoadLibrary')
         self.fileMenu.appendCommand('Workspace.CreateLibrary')
         self.fileMenu.appendCommand('Workspace.CloseActiveLibrary')
         self.fileMenu.appendSeparator()
         self.fileMenu.appendCommand('Application.Exit')
         self.menuBarContainer.appendContainer(self.fileMenu)
+
+        self.libraryMenu.appendCommand('Library.AddFiles')
+        self.libraryMenu.appendCommand('Library.AddDirectory')
+        self.menuBarContainer.appendContainer(self.libraryMenu)
 
         self.helpMenu = QMenuCommandContainer('Help', tr('Help'), self)
         cm.addContainer(self.helpMenu)
@@ -105,7 +123,7 @@ class MainWindow(QMainWindow):
         filename = QFileDialog.getOpenFileName(self, QCoreApplication.applicationName(),
                                                last_dir, LIBRARY_DIALOG_FILTER)
         if filename:
-            qs['lastfiledialogpath'] = QFileInfo(filename).dir().absolutePath()
+            qs['lastfiledialogpath'] = QFileInfo(filename).absoluteFilePath()
             self.loadLibraryFromFile(filename)
 
     def loadLibraryFromFile(self, filename):
@@ -118,6 +136,8 @@ class MainWindow(QMainWindow):
         if env_of_duplicate:
             self.activeEnviron = env_of_duplicate[0]
             return
+
+        newenv = None
 
         try:
             newlib = Library.loadLibrary(filename)
@@ -150,7 +170,8 @@ class MainWindow(QMainWindow):
         except Exception as err:
             self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
 
-        self.activeEnviron = newenv
+        if newenv is not None:
+            self.activeEnviron = newenv
 
     @property
     def activeEnviron(self):
@@ -249,6 +270,7 @@ class MainWindow(QMainWindow):
 
     def __onLibTabIndexChanged(self, new_index):
         self.updateTitle()
+        self.libraryActiveValidator.isActive = bool(new_index >= 0)
 
     def __onLibTabCloseRequested(self, tab_index):
         environ = self.environFromTab(tab_index)
@@ -258,6 +280,53 @@ class MainWindow(QMainWindow):
     def createNodeFromUrl(self, display_name, url, environ):
         if environ is not None and environ.lib is not None:
             environ.lib.createNode(display_name, url)
+
+    def addFiles(self):
+        if self.activeEnviron is not None:
+            qs = globalQuickSettings()
+            dialog = QFileDialog(self, tr('Add files to library'), qs['lastfiledialogpath'])
+            dialog.setFileMode(QFileDialog.ExistingFiles)
+            if dialog.exec_() == QFileDialog.Accepted:
+                self.addFilesFromList(dialog.selectedFiles())
+                qs['lastfiledialogpath'] = dialog.selectedFiles()[0]
+
+    def addDir(self):
+        if self.activeEnviron is not None:
+            qs = globalQuickSettings()
+            dialog = QFileDialog(self, tr('Add directory with contents to library'))
+            dialog.setFileMode(QFileDialog.Directory)
+            if dialog.exec_() == QFileDialog.Accepted:
+                self.addFile(dialog.selectedFiles()[0])
+                qs['lastfiledialogpath'] = dialog.selectedFiles()[0]
+
+    def addFilesFromList(self, filenames):
+        for filename in filenames:
+            self.addFile(filename)
+
+    def addFile(self, filename):
+        from organica.lib.objects import Node, Identity, Tag
+        from organica.lib.locator import Locator
+        from organica.gui.nodedialog import NodeEditDialog
+        from organica.lib.formatstring import FormatString
+
+        env = self.activeEnviron
+        if env is not None and env.lib is not None and env.lib.storage is not None:
+            node = Node()
+            node.identity = Identity(env.lib)
+            node.link(Tag(env.lib.tagClass('locator'), Locator.fromLocalFile(filename)))
+            nodeEditDialog = NodeEditDialog(self, env.lib, [node])
+            if nodeEditDialog.exec_() == NodeEditDialog.Accepted:
+                env.lib.flush(node)
+                path_template = None
+                if env.lib.storage.testMeta('path_template'):
+                    path_template = env.lib.storage.getMeta('path_template')
+
+                if not path_template:
+                    result_path = os.path.basename(filename)
+                else:
+                    result_path = FormatString(path_template).format(node)
+
+                env.lib.storage.addFile(filename, result_path)
 
 
 _mainWindow = None
