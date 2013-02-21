@@ -56,7 +56,7 @@ def _sqlEqualForm(text):
 
     r = ''
     for x in text:
-        r = r + (x if x != "\'" else "''")
+        r += (x if x != "\'" else "''")
     return r
 
 
@@ -504,7 +504,7 @@ class _Tag_Locator(object):
 
     def generateSql(self):
         return "value_type = {0} and value = '{1}'" \
-                .format(TagValue.TYPE_LOCATOR, self.locator.databaseForm)
+               .format(TagValue.TYPE_LOCATOR, self.locator.databaseForm)
 
     def qeval(self):
         return -1
@@ -668,7 +668,7 @@ class TagQuery(_Query):
         friend_of:     matches tags that are friends of given tags.
         """
 
-        q = copy(self)
+        q = copy.deepcopy(self)
         q.__filter = self.__getFilter(**kwargs)
         return q
 
@@ -783,7 +783,7 @@ class NodeQuery(_Query):
                          just a shorthand instead of tags=TagFilter(tagClass=xx, value=yy).
         """
 
-        q = copy(self)
+        q = copy.deepcopy(self)
         q.__filter = self.__getFilter(**kwargs)
         return q
 

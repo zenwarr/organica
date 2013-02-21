@@ -10,12 +10,13 @@ import organica.tests.sets
 import organica.tests.extend
 import organica.tests.operations
 import organica.tests.tagsmodel
+import organica.tests.objectsmodel
 
 
 def run():
     constants.disable_set_queued_connections = True
 
-    module_list = ( \
+    module_list = (
                     organica.tests.wildcard,
                     organica.tests.objects,
                     organica.tests.filters,
@@ -25,6 +26,7 @@ def run():
                     organica.tests.extend,
                     organica.tests.operations,
                     organica.tests.tagsmodel,
+                    organica.tests.objectsmodel,
                    )
 
     for module in module_list:

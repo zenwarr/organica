@@ -1,5 +1,6 @@
 from PyQt4.QtCore import pyqtSignal, Qt
-from PyQt4.QtGui import *
+from PyQt4.QtGui import QToolButton, QSortFilterProxyModel, QWidget, QLineEdit, QTreeView, QIcon, QButtonGroup, \
+                        QVBoxLayout, QHBoxLayout, QMenu
 
 from organica.gui.selectionmodel import WatchingSelectionModel
 from organica.gui.actions import StandardStateValidator, globalCommandManager
@@ -38,7 +39,7 @@ class TopicsView(QWidget):
     modeChanged = pyqtSignal(object)  # gets mode object as argument
     selectedTagChanged = pyqtSignal(object)  # gets tag identity as argument
 
-    def __init__(self, parent):
+    def __init__(self, parent, lib):
         QWidget.__init__(self, parent)
 
         self.__lib = None
@@ -91,16 +92,16 @@ class TopicsView(QWidget):
             globalObjectPool().objectAdded.connect(self.__addMode)
             globalObjectPool().objectRemoved.connect(self.__removeMode)
 
+        self.lib = lib
+
     @property
     def lib(self):
         return self.__lib
 
     @lib.setter
     def lib(self, new_lib):
-        """Changing library will reset filter and hierarchy.
-        """
-
-        model = TagsModel(lib)
+        """Changing library will reset filter and hierarchy."""
+        model = TagsModel(new_lib)
         self._treeModel.setSourceModel(model)
 
     @property
@@ -125,7 +126,7 @@ class TopicsView(QWidget):
                     mode_button = m_button
                     break
             else:
-                if mode_object is new_object:
+                if m_object is new_mode:
                     mode_button = m_button
                     break
         else:
@@ -182,7 +183,7 @@ class TopicsView(QWidget):
 
         for m_object, m_button in self.modes:
             if m_button is mode_button:
-                self._treeModel.heirarchy = m_object.hierarchy
+                self._treeModel.hierarchy = m_object.hierarchy
                 self.modeChanged.emit(m_object)
 
     def __showContextMenu(self, pos):
@@ -200,5 +201,4 @@ class TopicsView(QWidget):
         self.selectedTagChanged.emit(tag)
 
     def __onCurrentTagReset(self):
-        self.tagActiveState.active = False
         self.selectedTagChanged.emit(None)

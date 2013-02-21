@@ -16,6 +16,14 @@ class Locator(object):
         return QUrl(self.__url)
 
     @property
+    def launchUrl(self):
+        """Same as url, but translates storage scheme to file"""
+        if self.isLocalFile:
+            return QUrl.fromLocalFile(self.localFilePath)
+        else:
+            return self.url
+
+    @property
     def isLocalFile(self):
         return self.isManagedFile or self.__url.isLocalFile()
 
@@ -79,5 +87,5 @@ class Locator(object):
     def __deepcopy__(self, memo):
         # it is impossible to deepcopy PyQt objects
         cp = Locator(self.__url)
-        cp.__lib = self.__lib
+        cp.__lib = self.__lib  # do not deepcopy librar
         return cp

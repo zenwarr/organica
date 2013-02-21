@@ -27,6 +27,7 @@ class LocalStorage(object):
 
         if os.path.exists(root_dir) and os.path.exists(stor.metafilePath):
             with open(stor.metafilePath, 'rt') as f:
+                config = None
                 try:
                     config = readJsonFile(f)
                 except ValueError as err:

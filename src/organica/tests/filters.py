@@ -62,19 +62,19 @@ class TestFilters(unittest.TestCase):
         f = TagQuery(text='Shakespeare')
         self.assertTrue(author_shakespeare.passes(f))
         self.assertFalse(author_carrol.passes(f))
-        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'Shakespeare' collate strict_nocase" \
+        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'Shakespeare' collate strict_nocase"
                          .format(TagValue.TYPE_TEXT))
 
         f = TagQuery(text='shakespeare')
         self.assertTrue(author_shakespeare.passes(f))
-        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'shakespeare' collate strict_nocase" \
+        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'shakespeare' collate strict_nocase"
                          .format(TagValue.TYPE_TEXT))
 
         author_shakespeare.value.text = 'Шекспир'
 
         f = TagQuery(text=author_shakespeare.value.text)
         self.assertTrue(author_shakespeare.passes(f))
-        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'Шекспир' collate strict_nocase" \
+        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'Шекспир' collate strict_nocase"
                          .format(TagValue.TYPE_TEXT))
 
         f = TagQuery(text='шекспир')
@@ -85,7 +85,7 @@ class TestFilters(unittest.TestCase):
         f = TagQuery(text=Wildcard('L*'))
         self.assertTrue(author_carrol.passes(f))
         self.assertFalse(author_shakespeare.passes(f))
-        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value like 'L%' escape '!' collate strict_nocase" \
+        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value like 'L%' escape '!' collate strict_nocase"
                          .format(TagValue.TYPE_TEXT))
 
         f = TagQuery(text=Wildcard('*'))
@@ -164,13 +164,13 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(author_shakespeare.passes(f))
 
         f = TagQuery(value='Lewis Carrol')
-        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'Lewis Carrol' collate strict_nocase" \
+        self.assertEqual(f.generateSqlWhere(), "value_type = {0} and value = 'Lewis Carrol' collate strict_nocase"
                              .format(TagValue.TYPE_TEXT))
         self.assertTrue(author_carrol.passes(f))
         self.assertFalse(author_shakespeare.passes(f))
 
         f = TagQuery(linked_with=obj)
-        self.assertEqual(f.generateSqlWhere(), "id in (select tag_id from links where node_id = {0})" \
+        self.assertEqual(f.generateSqlWhere(), "id in (select tag_id from links where node_id = {0})"
                          .format(obj.id))
         self.assertFalse(author_carrol.passes(f))
         self.assertFalse(author_shakespeare.passes(f))
@@ -189,12 +189,12 @@ class TestFilters(unittest.TestCase):
         self.assertTrue(author_shakespeare.passes(f))
 
         f = TagQuery(linked_with=obj1) & TagQuery(value_type=TagValue.TYPE_NUMBER)
-        self.assertEqual(f.generateSqlWhere(), ("(id in (select tag_id from links where node_id = {0})) and " \
+        self.assertEqual(f.generateSqlWhere(), ("(id in (select tag_id from links where node_id = {0})) and "
                          + "(value_type = {1})").format(obj1.id, TagValue.TYPE_NUMBER))
         self.assertFalse(author_carrol.passes(f))
 
         f = TagQuery(linked_with=obj1) | TagQuery(value_type=TagValue.TYPE_NUMBER)
-        self.assertEqual(f.generateSqlWhere(), ("(id in (select tag_id from links where node_id = {0})) or " \
+        self.assertEqual(f.generateSqlWhere(), ("(id in (select tag_id from links where node_id = {0})) or "
                          + "(value_type = {1})").format(obj1.id, TagValue.TYPE_NUMBER))
         self.assertFalse(author_carrol.passes(f))
         self.assertTrue(author_shakespeare.passes(f))
@@ -236,8 +236,8 @@ class TestFilters(unittest.TestCase):
         obj_unflushed = Node('Unflushed')
 
         f = NodeQuery(tags=TagQuery(identity=author_carrol))
-        self.assertEqual(f.generateSqlWhere(), ("id in (select node_id " \
-                         + "from links where tag_id in (select id from tags " \
+        self.assertEqual(f.generateSqlWhere(), ("id in (select node_id "
+                         + "from links where tag_id in (select id from tags "
                          + "where id = {0}))").format(author_carrol.id))
         self.assertTrue(obj_alice.passes(f))
         self.assertFalse(obj_unknown_book.passes(f))
@@ -258,4 +258,4 @@ class TestFilters(unittest.TestCase):
         f.disableHinted('my_hint')
         self.assertEqual(f.qeval(), 1)
 
-        lib.disconnect()
+        lib.disconnectDatabase()

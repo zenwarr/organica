@@ -11,7 +11,7 @@ class TestLibraryMeta(unittest.TestCase):
         self.lib = library.Library.createLibrary(':memory:')
 
     def tearDown(self):
-        self.lib.disconnect()
+        self.lib.disconnectDatabase()
 
     def test(self):
         self.lib.setMeta('meta1', 'meta1_value')
@@ -48,7 +48,7 @@ class TestLibraryTagClasses(unittest.TestCase):
         self.lib = library.Library.createLibrary(':memory:')
 
     def tearDown(self):
-        self.lib.disconnect()
+        self.lib.disconnectDatabase()
 
     def test(self):
         # createTagClass

@@ -52,11 +52,12 @@ class Identity(object):
         return not self.__eq__(other)
 
     def __deepcopy__(self, memo):
+        # do not deepcopy library reference
         return Identity(self.lib, self.id)
 
 
 class TagValue(object):
-    """Represents value assotiated with tag.
+    """Represents value associated with tag.
     Value has a type. Currently only limited set of types is supported:
         - TEXT: textual information mapped to Python str and SQLite TEXT types.
         - NUMBER: integer or floating-point number mapped to Python int or float
@@ -170,6 +171,7 @@ class TagValue(object):
         self.__valueType = self.TYPE_NONE
         self.value = None
 
+    @property
     def databaseForm(self):
         """Returns value that can be stored in SQLite database.
         """
@@ -182,7 +184,7 @@ class TagValue(object):
         error messages or something like it (limited in size)
         """
 
-        s = str(self.databaseForm())
+        s = str(self.databaseForm)
         if len(s) > 50:
             s = s[:47] + '...'
         return s
@@ -298,10 +300,12 @@ class LibraryObject(object):
             if not self.lib:
                 self.identity = Identity(lib)
             elif self.lib is not lib:
-                raise ObjectError('LibraryObject assotiated with another library')
+                raise ObjectError('LibraryObject associated with another library')
 
         if self.lib:
             self.lib.flush(self)
+        else:
+            raise ValueError('object cannot be flushed: not associated with any library')
 
 
 class TagClass(LibraryObject):
@@ -456,7 +460,7 @@ class Node(LibraryObject):
 
     @property
     def displayName(self):
-        from organica.lib.objects import FormatString
+        from organica.lib.formatstring import FormatString
         return FormatString(self.displayNameTemplate).format(self)
 
     @property

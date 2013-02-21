@@ -140,8 +140,8 @@ class DatabasePage(QWizardPage):
     def validatePage(self):
         if QFileInfo(self.databaseFilename).exists():
             answer_button = QMessageBox.question(self, tr('Database file exists'),
-                     tr('Choosen database file already exist and can be used by another library .' \
-                     'Replacing it will cause loss of information stored in existing database.\n\n' \
+                     tr('Choosen database file already exist and can be used by another library. '
+                     'Replacing it will cause loss of information stored in existing database.\n\n'
                      'Do you really want to replace existing database file?'),
                      QMessageBox.Yes | QMessageBox.No)
             return answer_button == QMessageBox.Yes

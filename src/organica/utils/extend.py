@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class ObjectPool(QObject, Lockable):
-    """ObjectPool stores objects that can be used as extension points for
-    application. Each object stored should have 'group' and 'extensionUuid'
-    attributes.
+    """Stores objects that can be used as extension points by application. Each object should support
+    'group' and 'extensionUuid' attributes.
+    ObjectPool wraps each extension object into special class and stores not extension object directly, but wrapper.
     """
 
     objectAdded = pyqtSignal(object)
@@ -24,39 +24,38 @@ class ObjectPool(QObject, Lockable):
     def __init__(self):
         QObject.__init__(self)
         Lockable.__init__(self)
-        self._objects = []
+        self.__objects = []
 
     def __len__(self):
         with self.lock:
-            return len(self._objects)
+            return len(self.__objects)
 
     def __iter__(self):
         with self.lock:
-            for obj in self._objects:
+            for obj in self.__objects:
                 yield obj
 
     def __contains__(self, obj):
         with self.lock:
-            return any((x == obj for x in self._objects))
+            return any((x == obj for x in self.__objects))
 
     def add(self, obj):
-        """Add object into pool. You should not add objects directly into _objects list.
+        """Add object (or objects from list/tuple) into pool.
         """
 
         with self.lock:
-            if obj is not None:
-                if isinstance(obj, list) or isinstance(obj, tuple):
-                    for x in obj:
-                        x = _PluginObjectWrapper(x)
-                        self._objects.append(x)
-                        self.objectAdded.emit(x)
-                else:
-                    obj = _PluginObjectWrapper(obj)
-                    self._objects.append(obj)
-                    self.objectAdded.emit(obj)
+            if isinstance(obj, list) or isinstance(obj, tuple):
+                for x in obj:
+                    x = _PluginObjectWrapper(x)
+                    self.__objects.append(x)
+                    self.objectAdded.emit(x)
+            elif obj is not None:
+                obj = _PluginObjectWrapper(obj)
+                self.__objects.append(obj)
+                self.objectAdded.emit(obj)
 
     def removeExtensionObjects(self, ext_uuid):
-        """Convenience method to remove all objects which are assotiated with
+        """Convenience method to remove all objects which are associated with
         given extension UUID
         """
 
@@ -67,8 +66,8 @@ class ObjectPool(QObject, Lockable):
         """
 
         with self.lock:
-            objs_to_remove = [x for x in self._objects if predicate is None or predicate(x._target)]
-            self._objects = [x for x in self._objects if predicate is not None and not predicate(x._target)]
+            objs_to_remove = [x for x in self.__objects if predicate is None or predicate(x._target)]
+            self.__objects = [x for x in self.__objects if not (predicate is None or predicate(x._target))]
             for obj in objs_to_remove:
                 self.objectRemoved.emit(obj)
 
@@ -81,7 +80,7 @@ class ObjectPool(QObject, Lockable):
         """
 
         with self.lock:
-            return [x for x in self._objects if (not group or x.group == group) \
+            return [x for x in self.__objects if (not group or x.group == group) \
                     and (predicate is None or predicate(x))]
 
     def __getitem__(self, group_name):
@@ -108,7 +107,6 @@ class PluginInfo(object):
         self.module = None
         self.plugin_object = None
         self.loaded = False
-        self.enabled = True
 
     def __str__(self):
         return self.uuid
@@ -125,17 +123,18 @@ class PluginManager(object):
 
     def __init__(self):
         self.__allPlugins = []
-        self.__globalSettings = []
-        globalSettings().register('disabled_plugins', [])
 
     def loadPlugins(self):
-        """Load all plugins from plugins directory. Should be called once on program
-        startup. Disabled plugins will not be loaded. Does not raises an error when any
-        plugin fails to let other plugins to be loaded.
+        """Load all plugins from plugins directory. Should be called once on program startup. Disabled plugins
+        will not be loaded. If plugins directory does not exist, no error will be raised.
+        If any plugin fails to load, no error will be raised to let other plugins be loaded.
         """
+        logger.debug('loading plugins from {0}'.format(self.pluginsPath))
+
         if not os.path.exists(self.pluginsPath):
             return
 
+        # iterate over directories in plugins directory
         for name in os.listdir(self.pluginsPath):
             path = os.path.join(self.pluginsPath, name)
             if os.path.isdir(path):
@@ -143,22 +142,25 @@ class PluginManager(object):
                 if os.path.exists(os.path.join(path, self.PLUGIN_CONFIG_FILENAME)):
                     plugin = PluginInfo()
                     plugin.path = path
+                    logger.debug('loading plugin {0}...'.format(plugin.name))
                     try:
                         self.__loadPlugin(plugin)
                     except PluginError as err:
                         logger.error('failed to load plugin from {0}: {1}'.format(path, err))
+                    else:
+                        logger.debug('...loaded successfully')
                     self.__allPlugins.append(plugin)
 
     def unloadPlugins(self):
-        """Unload all loaded plugins. Does not raises an error when any plugin fails to
-        let all plugins to be unloaded.
+        """Unload all loaded plugins. Does not raises an error when any plugin fails to unload to let all plugins
+        be unloaded. Objects placed in global object pool by this plugin will be removed from pool first.
         """
         for plugin in self.__allPlugins:
-            try:
-                globalObjectPool().removeExtensionObjects(plugin.uuid)
-                self.unloadPlugin(plugin)
-            except PluginError as err:
-                logger.error('error while unloading plugin {0}: {1}'.format(plugin.name, err))
+            if plugin.loaded:
+                try:
+                    self.unloadPlugin(plugin)
+                except PluginError as err:
+                    logger.error('error while unloading plugin {0}: {1}'.format(plugin.name, err))
 
     @property
     def pluginsPath(self):
@@ -166,31 +168,33 @@ class PluginManager(object):
 
     @property
     def allPlugins(self):
-        """List of PluginInfo objects.
+        """List of PluginInfo objects. Contains not only successfully loaded plugins, but also disabled or
+        broken ones.
         """
         return self.__allPlugins
 
-    @property
-    def disabledPluginsUuids(self):
-        """List of UUIDs for plugins that are disabled.
-        """
-        return globalSettings()['disabled_plugins']
-
     def enablePlugin(self, plugin, is_enabled=True):
+        """Enable or disable plugin. List of disabled plugins is stored in application settings. Plugin will be
+        loaded or unloaded to reflect changes.
+        """
+
         plugin = self.__getPlugin(plugin)
         if plugin is None:
             raise PluginError('plugin {0} not found'.format(plugin))
-        is_already_enabled = plugin.uuid in self.__disabledPlugins
-        if is_already_enabled != is_enabled:
+
+        disabled_plugins_uuids = globalSettings()['disabled_plugins']
+        if (plugin.uuid not in disabled_plugins_uuids) != is_enabled:
             if is_enabled:
-                self.__disabledPlugins = [x for x in self.__disabledPlugins if x.uuid != plugin.uuid]
+                # remove uuid from list and reload given plugin
+                disabled_plugins_uuids = [uuid for uuid in disabled_plugins_uuids if uuid != plugin.uuid]
                 if not plugin.loaded:
                     self.reloadPlugin(plugin)
             else:
-                self.__disabledPlugins.append(plugin.uuid)
+                # add to list and unload plugin
+                disabled_plugins_uuids.append(plugin.uuid)
                 if plugin.loaded:
                     self.unloadPlugin(plugin)
-            globalSettings()['disabled_plugins'] = self.__disabledPlugins
+            globalSettings()['disabled_plugins'] = disabled_plugins_uuids
 
     def reloadPlugin(self, plugin):
         plugin = self.__getPlugin(plugin)
@@ -198,51 +202,63 @@ class PluginManager(object):
             raise PluginError('plugin {0} not found'.format(plugin))
 
         if plugin.loaded:
+            plugin_module = plugin.module
+
             self.unloadPlugin(plugin)
 
-        self.__loadPlugin(plugin)
+            import imp
+            imp.reload(plugin_module)
+            plugin.module = plugin_module
+
+            self.__loadPlugin(plugin)
+        else:
+            self.__loadPlugin(plugin)
 
     def unloadPlugin(self, plugin):
+        """Unload plugin. Does not raise any error if plugin is not loaded. Due to Python architecture,
+        calling this function does not guarantee that module will be unloaded.
+        If extension code fails during unloading, plugin still will be marked as unloaded.
+        """
         plugin = self.__getPlugin(plugin)
         if plugin is None:
             raise PluginError('plugin {0} is not found'.format(plugin))
 
         if plugin.loaded:
             try:
-                if plugin.plugin_object and hasattr(plugin.plugin_object, 'onUnload'):
+                # call unload routine if exist
+                if plugin.plugin_object is not None and hasattr(plugin.plugin_object, 'onUnload'):
                     plugin.plugin_object.onUnload()
+
+                # remove objects associated with plugin
+                globalObjectPool().removeExtensionObjects(plugin.uuid)
+            except Exception as err:
+                raise PluginError('error while unloading plugin {0}: {1}'.format(plugin.name, str(err)))
+            else:
                 plugin.loaded = False
                 plugin.module = plugin.plugin_object = None
-            except Exception as err:
-                raise PluginError('failed to unload plugin {0}: error while unintializing: {1}' \
-                                  .format(plugin.name, str(err)))
 
     def __loadPlugin(self, plugin):
         config_filename = os.path.join(plugin.path, self.PLUGIN_CONFIG_FILENAME)
         if not os.path.exists(config_filename):
-            raise PluginError('failed to load plugin {1}: {0} file not found in plugin directory' \
-                              .format(self.PLUGIN_CONFIG_FILENAME, plugin.path))
+            raise PluginError('{0} file not found'.format(config_filename))
 
         with open(config_filename, 'rt') as f:
             try:
                 info_data = json.load(f)
-                plugin.uuid = str(info_data['uuid'])
-                plugin.name = str(info_data['name'])
-                plugin.description = str(info_data['description'])
-                plugin.authors = str(info_data['authors'])
+                plugin.uuid = str(info_data.get('uuid'))
+                plugin.name = str(info_data.get('name'))
+                plugin.description = str(info_data.get('description'))
+                plugin.authors = str(info_data.get('authors'))
             except:
-                raise PluginError('failed to load plugin {1}: invalid {0} file' \
-                                  .format(self.PLUGIN_CONFIG_FILENAME, plugin.path))
+                raise PluginError('invalid {0} file'.format(config_filename))
 
         # check if uuid is valid
         if not plugin.uuid:
-            raise PluginError('failed to load plugin {0}: uuid is invalid' \
-                              .format(plugin.path))
+            raise PluginError('uuid is invalid')
 
         # check if name is valid
         if not plugin.name:
-            raise PluginError('failed to load plugin {0}: name is invalid' \
-                              .format(plugin.path))
+            raise PluginError('name is invalid')
 
         # import module file
         try:
@@ -250,17 +266,32 @@ class PluginManager(object):
 
             main_module = os.path.join(plugin.path, self.PLUGIN_MAIN_MODULE)
             if not os.path.exists(main_module):
-                raise PluginError('failed to load plugin {0}: {1} not found' \
-                                  .format(plugin.name, self.PLUGIN_MAIN_MODULE))
+                raise PluginError('{0} not found'.format(main_module))
             plugin.module = imp.load_source('plugins.{0}'.format(plugin.name), main_module)
         except Exception as err:
-            raise PluginError('failed to load plugin {0}: error during loading module: {1}' \
-                              .format(plugin.name, str(err)))
+            raise PluginError('error during loading module: {0}'.format(err))
 
+        self.__initPlugin(plugin)
+
+        return plugin
+
+    def __getPlugin(self, plugin):
+        """Get PluginInfo data from allPlugins list. Argument can be of string (plugin name or uuid), QUuid or
+        PluginInfo type. In last case, it uses uuid attribute of PluginInfo to get result.
+        """
+        if isinstance(plugin, str):
+            # it is name or uuid
+            r = [x for x in self.__allPlugins if x.name == plugin or x.uuid == plugin]
+        elif isinstance(plugin, QUuid):
+            r = [x for x in self.__allPlugins if x.uuid == plugin.toString()]
+        elif isinstance(plugin, PluginInfo):
+            return self.__getPlugin(plugin.uuid)
+        return r[0] if r else None
+
+    def __initPlugin(self, plugin):
         try:
             if not hasattr(plugin.module, 'Plugin'):
-                raise PluginError('failed to load plugin {0}: module does not have \'Plugin\' attribute' \
-                                  .format(plugin.name))
+                raise PluginError('module does not have \'Plugin\' attribute')
 
             plugin.plugin_object = plugin.module.Plugin()
 
@@ -270,20 +301,7 @@ class PluginManager(object):
             plugin.loaded = True
         except Exception as err:
             plugin.module = plugin.plugin_object = None
-            raise PluginError('failed to load plugin {0}: error during initialization: {1}' \
-                              .format(plugin.name, str(err)))
-
-        return plugin
-
-    def __getPlugin(self, plugin):
-        if isinstance(plugin, str):
-            # it is name or uuid
-            r = [x for x in self.__allPlugins if x.name == plugin or x.uuid == plugin]
-        elif isinstance(plugin, QUuid):
-            r = [x for x in self.__allPlugins if x.uuid == plugin.toString()]
-        elif isinstance(plugin, PluginInfo):
-            return self.__getPlugin(plugin.uuid)
-        return r[0] if r else None
+            raise PluginError('error during initialization: {0}'.format(err))
 
 
 _globalPluginManager = None
@@ -296,26 +314,26 @@ def globalPluginManager():
     return _globalPluginManager
 
 
-def Hooks(object):
-    _allHooks = dict()
+class Hooks(object):
+    allHooks = dict()
 
     @staticmethod
     def installHook(hook_name, callback):
-        if hook_name in Hooks._allHooks:
-            Hooks._allHooks[hook_name].append(callback)
+        if hook_name in Hooks.allHooks:
+            Hooks.allHooks[hook_name].append(callback)
         else:
-            Hooks._allHooks[hook_name] = [callback]
+            Hooks.allHooks[hook_name] = [callback]
 
     @staticmethod
     def uninstallHook(hook_name, callback):
-        if hook_name in Hooks._allHooks:
-            Hooks._allHooks[hook_name] = [x for x in Hooks._allHooks[hook_name] if x is not callback]
+        if hook_name in Hooks.allHooks:
+            Hooks.allHooks[hook_name] = [x for x in Hooks.allHooks[hook_name] if x is not callback]
 
     @staticmethod
     def safeRunHook(hook_name, **kwargs):
         """Call each hook installed. Does not raises any exception from hooks.
         """
-        for callback in Hooks._allHooks.get(hook_name, []):
+        for callback in Hooks.allHooks.get(hook_name, []):
             try:
                 callback(**kwargs)
             except Exception as err:
@@ -323,11 +341,12 @@ def Hooks(object):
 
     @staticmethod
     def unsafeRunHook(hook_name, **kwargs):
-        for callback in Hooks._allHooks.get(hook_name, []):
+        for callback in Hooks.allHooks.get(hook_name, []):
             callback(**kwargs)
 
-    def runHook(self, hook_name, **kwargs):
-        getattr(self, ('un' if constants.debug_plugins else '') + 'runHook')(hook_name, **kwargs)
+    @staticmethod
+    def runHook(hook_name, **kwargs):
+        getattr(Hooks, ('un' if constants.debug_plugins else '') + 'runHook')(hook_name, **kwargs)
 
 
 def reportPluginFail(error, plugin_object):
@@ -347,7 +366,8 @@ def pluginGetattr(plugin_object, attr_name, default=None):
     try:
         if hasattr(plugin_object, attr_name):
             return getattr(plugin_object, attr_name)
-    except:
+    except Exception as err:
+        reportPluginFail(err, plugin_object)
         return default
 
 
@@ -356,7 +376,7 @@ class _PluginObjectWrapper(object):
         self._target = target
 
     def __getattr__(self, attr_name):
-        if attr_name.startswith('_') or attr_name.startswith('_PluginObjectWrapper'):
+        if attr_name.startswith('_'):
             return object.__getattr__(self, attr_name)
         if self._target is not None:
             if not constants.debug_plugins:

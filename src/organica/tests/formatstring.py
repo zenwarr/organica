@@ -49,4 +49,4 @@ class TestFormatString(unittest.TestCase):
         fs.template = '{pages_count: some_param}'  # should produce warning about unknown parameter
         self.assertEqual(fs.format(obj), '289')
 
-        lib.disconnect()
+        lib.disconnectDatabase()

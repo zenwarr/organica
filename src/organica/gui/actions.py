@@ -189,6 +189,26 @@ class CommandManager(object):
     def shortcutsConfigFilename(self):
         return os.path.join(constants.data_dir, self.SHORTCUTS_CONFIG_FILENAME)
 
+    def activate(self, validator, new_state=True):
+        if isinstance(validator, str):
+            if validator not in self.validators:
+                self.addValidator(StandardStateValidator(validator))
+            validator = self.validators[validator]
+        if validator is not None:
+            validator.isActive = new_state
+
+    def deactivate(self, validator):
+        self.activate(validator, False)
+
+    def isActive(self, validator):
+        if isinstance(validator, str):
+            if validator in self.validators:
+                return self.validators[validator].isActive
+            else:
+                return False
+        else:
+            return validator.isActive
+
 
 _globalCommandManager = None
 

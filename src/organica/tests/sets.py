@@ -43,17 +43,7 @@ class TestTagSet(unittest.TestCase):
         alice_node = lib.node(alice_node)
         self.assertEqual(len(tagSet), 0)
 
-        tagSet.isPaused = True
-
-        author_carrol = lib.createTag(author_class, 'Lewis Carrol')
-        alice_node.link(author_carrol)
-        alice_node.flush()
-
-        self.assertEqual(len(tagSet), 0)
-        tagSet.isPaused = False
-        self.assertEqual(len(tagSet), 1)
-
-        lib.disconnect()
+        lib.disconnectDatabase()
 
 
 class TestNodeSet(unittest.TestCase):
@@ -105,15 +95,8 @@ class TestNodeSet(unittest.TestCase):
 
         self.assertEqual(len(node_set), 1)
 
-        # pausing (freeze)
-        node_set.isPaused = True
-
         alice_node.unlink(TagQuery(tag_class='author', text='Lewis Carrol'))
         alice_node.flush()
-
-        self.assertEqual(len(node_set), 1)
-
-        node_set.isPaused = False
 
         self.assertEqual(len(node_set), 0)
 
@@ -125,4 +108,4 @@ class TestNodeSet(unittest.TestCase):
         alice_node.remove()
         self.assertEqual(len(node_set), 0)
 
-        lib.disconnect()
+        lib.disconnectDatabase()

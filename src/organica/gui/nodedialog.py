@@ -147,7 +147,8 @@ class NodeEditDialog(QDialog):
 
     @property
     def nodes(self):
-        return self.__nodes
+        self.__save()
+        return copy.deepcopy(self.__nodes)
 
     def reject(self):
         self.__save()

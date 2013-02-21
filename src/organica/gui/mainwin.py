@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 from PyQt4.QtGui import QMainWindow, QSplitter, QWidget, QIcon, QFileDialog, QMessageBox, \
                         QTabWidget, QVBoxLayout
@@ -8,6 +9,7 @@ from PyQt4.QtCore import QByteArray, QCoreApplication, QFileInfo, QDir
 from organica.utils.settings import globalQuickSettings
 import organica.gui.resources.qrc_main  # resource initialization
 from organica.gui.topicsview import TopicsView
+from organica.gui.objectsview import ObjectsView
 from organica.gui.actions import globalCommandManager, QMenuBarCommandContainer, QMenuCommandContainer, \
                         StandardStateValidator
 from organica.utils.helpers import tr
@@ -55,10 +57,11 @@ class MainWindow(QMainWindow):
         cm.addNewCommand(self.createLibrary, 'Workspace.CreateLibrary', tr('Create library'),
                                              default_shortcut='Ctrl+Shift+N')
         cm.addNewCommand(self.closeActiveEnviron, 'Workspace.CloseActiveLibrary', tr('Close library'),
-                                             default_shortcut='Ctrl+Shift+W')
+                                             default_shortcut='Ctrl+Shift+W', validator='LibraryActive')
         cm.addNewCommand(self.addFiles, 'Library.AddFiles', tr('Add files'), validator='LibraryActive',
                                              default_shortcut='Ctrl+O')
         cm.addNewCommand(self.addDir, 'Library.AddDirectory', tr('Add directory'), validator='LibraryActive')
+        cm.addNewCommand(self.showLibraryDatabase, 'Library.ShowDatabase', tr('Show database'), validator='LibraryActive')
         cm.addNewCommand(self.close, 'Application.Exit', tr('Exit'))
         cm.addNewCommand(self.showAbout, 'Application.ShowAbout', tr('About...'))
 
@@ -78,6 +81,8 @@ class MainWindow(QMainWindow):
         self.fileMenu.appendCommand('Application.Exit')
         self.menuBarContainer.appendContainer(self.fileMenu)
 
+        self.libraryMenu.appendCommand('Library.ShowDatabase')
+        self.libraryMenu.appendSeparator()
         self.libraryMenu.appendCommand('Library.AddFiles')
         self.libraryMenu.appendCommand('Library.AddDirectory')
         self.menuBarContainer.appendContainer(self.libraryMenu)
@@ -148,36 +153,36 @@ class MainWindow(QMainWindow):
 
         newenv = None
 
-        try:
-            newlib = Library.loadLibrary(filename)
+        # try:
+        newlib = Library.loadLibrary(filename)
 
-            # try to load library
-            profile_uuid = newlib.getMeta('profile')
-            if not profile_uuid:
-                logger.warn('no profile assotiated with library {0}, falling back to generic'.format(filename))
-                profile = ProfileManager.genericProfile()
-            else:
-                profile = ProfileManager.getProfile(profile_uuid)
-                if profile is None:
-                    logger.warn('no profile extension {0} installed for library {1}, falling back to generic' \
-                                .format(profile_uuid, filename))
-                    profile = ProfileManager.genericProfile()
-
+        # try to load library
+        profile_uuid = newlib.getMeta('profile')
+        if not profile_uuid:
+            logger.warn('no profile associated with library {0}, falling back to generic'.format(filename))
+            profile = ProfileManager.genericProfile()
+        else:
+            profile = ProfileManager.getProfile(profile_uuid)
             if profile is None:
-                raise Exception('failed to load library {0}: cannot find profile to load it'.format(filename))
+                logger.warn('no profile extension {0} installed for library {1}, falling back to generic' \
+                            .format(profile_uuid, filename))
+                profile = ProfileManager.genericProfile()
 
-            newenv = LibraryEnvironment()
-            newenv.lib = newlib
-            newenv.profile = profile
-            newenv.ui = self.createUiForEnviron(newenv)
-            self.libTabWidget.addTab(newenv.ui, self.getTitleForEnviron(newenv))
+        if profile is None:
+            raise Exception('failed to load library {0}: cannot find profile to load it'.format(filename))
 
-            self.workspace.append(newenv)
+        newenv = LibraryEnvironment()
+        newenv.lib = newlib
+        newenv.profile = profile
+        newenv.ui = self.createUiForEnviron(newenv)
+        self.libTabWidget.addTab(newenv.ui, self.getTitleForEnviron(newenv))
 
-            if hasattr(newenv.profile, 'createProfileEnviron'):
-                newenv.profileEnviron = profile.createProfileEnviron(newenv)
-        except Exception as err:
-            self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
+        self.workspace.append(newenv)
+
+        if hasattr(newenv.profile, 'createProfileEnviron'):
+            newenv.profileEnviron = profile.createProfileEnviron(newenv)
+        # except Exception as err:
+        #     self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
 
         if newenv is not None:
             self.activeEnviron = newenv
@@ -198,12 +203,14 @@ class MainWindow(QMainWindow):
         if wizard.exec_() != CreateLibraryWizard.Accepted:
             return
 
+        #todo: check if database already used
+
         try:
             newlib = wizard.lib
         except Exception as err:
             self.reportError(tr('failed to create library: {0}').format(err))
-
-        self.loadLibraryFromFile(newlib.databaseFilename)
+        else:
+            self.loadLibraryFromFile(newlib.databaseFilename)
 
     def closeEnviron(self, environ):
         # unload profile
@@ -240,10 +247,11 @@ class MainWindow(QMainWindow):
 
         ui.splitter = QSplitter(ui)
 
-        ui.topicsView = TopicsView(ui)
+        ui.topicsView = TopicsView(ui, environ.lib)
+        ui.objectsView = ObjectsView(ui, environ.lib)
 
         ui.splitter.addWidget(ui.topicsView)
-        ui.splitter.addWidget(QWidget(ui))
+        ui.splitter.addWidget(ui.objectsView)
 
         splitter_state = environ.lib.getMeta('splitterstate')
         if splitter_state:
@@ -319,23 +327,38 @@ class MainWindow(QMainWindow):
         from organica.lib.formatstring import FormatString
 
         env = self.activeEnviron
-        if env is not None and env.lib is not None and env.lib.storage is not None:
+        if env is not None and env.lib is not None:
             node = Node()
             node.identity = Identity(env.lib)
             node.link(Tag(env.lib.tagClass('locator'), Locator.fromLocalFile(filename)))
             nodeEditDialog = NodeEditDialog(self, env.lib, [node])
             if nodeEditDialog.exec_() == NodeEditDialog.Accepted:
                 env.lib.flush(node)
-                path_template = None
-                if env.lib.storage.testMeta('path_template'):
-                    path_template = env.lib.storage.getMeta('path_template')
 
-                if not path_template:
-                    result_path = os.path.basename(filename)
-                else:
-                    result_path = FormatString(path_template).format(node)
+                if env.lib.storage is not None:
+                    path_template = None
+                    if env.lib.storage.testMeta('path_template'):
+                        path_template = env.lib.storage.getMeta('path_template')
 
-                env.lib.storage.addFile(filename, result_path)
+                    if not path_template:
+                        result_path = os.path.basename(filename)
+                    else:
+                        result_path = FormatString(path_template).format(node)
+
+                    env.lib.storage.addFile(filename, result_path)
+
+    def showLibraryDatabase(self):
+        from organica.gui.databasewidget import DatabaseDialog
+
+        env = self.activeEnviron
+        if env is not None and env.lib is not None:
+            if sys.platform.startswith('win32'):
+                # show built-in dialog
+                database_dialog = DatabaseDialog(env.lib.connection, self)
+                database_dialog.exec_()
+            else:
+                # requires sqlitebrowser package to be installed
+                os.system('sqlitebrowser "{0}" &'.format(env.lib.databaseFilename))
 
 
 _mainWindow = None

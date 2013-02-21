@@ -83,7 +83,7 @@ class _CallbackRequestEvent(QEvent):
     def __call__(self):
         if self.__operation is not None and self.__callback is not None \
                                         and callable(self.__callback):
-            result = self.__callable(*self.__callbackArgs)
+            result = self.__callback(*self.__callbackArgs)
             self.accept()
             self.__operation._reportCallbackProcessed(True, result)
 
@@ -613,14 +613,14 @@ class Operation(QObject, Lockable):
 
         # check if we are in gui thread already. In this case just invoke callback
         if current_thread() == constants.gui_thread:
-            return (True, callback(**callback_args))
+            return True, callback(**callback_args)
         else:
             with self.lock:
                 self.__callbackAccepted, self.__callbackResult = False, None
                 request_event = _CallbackRequestEvent(self, callback, **callback_args)
                 QCoreApplication.postEvent(globalGuiDispatcher(), request_event)
                 self.__waitUserCallback.wait()
-                return (self.__callbackAccepted, self.__callbackResult)
+                return self.__callbackAccepted, self.__callbackResult
 
     def _reportCallbackProcessed(self, accepted, result=None):
         with self.lock:

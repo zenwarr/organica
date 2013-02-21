@@ -93,7 +93,7 @@ class Library(QObject, Lockable):
         self._storage = None
 
     def __del__(self):
-        self.disconnect()
+        self.disconnectDatabase()
 
     @staticmethod
     def loadLibrary(filename):
@@ -102,7 +102,7 @@ class Library(QObject, Lockable):
         """
 
         if filename.lower() == ':memory:':
-            raise LibraryObject('Library.createLibrary should be used to create in-memory databases')
+            raise LibraryError('Library.createLibrary should be used to create in-memory databases')
 
         loaded_lib = Library._findOpenLibrary(filename)
         if loaded_lib is not None:
@@ -133,7 +133,7 @@ class Library(QObject, Lockable):
                 if not os.path.isabs(storage_path):
                     storage_path = os.path.join(os.path.dirname(lib.databaseFilename), storage_path)
                 if not os.path.exists(storage_path):
-                    logger.warning('assotiated storage directory does not exist: {0}'.format(storage_path))
+                    logger.warning('associated storage directory does not exist: {0}'.format(storage_path))
                 lib._storage = LocalStorage.fromDirectory(storage_path)
 
         with Library._loaded_libraries_lock:
@@ -201,6 +201,9 @@ class Library(QObject, Lockable):
 
             # and add magic meta
             lib.setMeta('organica', 'is magic')
+
+            # create basic tag classes
+            lib.createTagClass('locator', TagValue.TYPE_LOCATOR)
 
         with Library._loaded_libraries_lock:
             Library._loaded_libraries.append(lib)
@@ -338,8 +341,8 @@ class Library(QObject, Lockable):
         with self.lock:
             try:
                 tc = TagClass(Identity(), str(name), int(value_type), bool(is_hidden))
-            except ObjectError:
-                raise TypeError('invalid arguments')
+            except ObjectError as err:
+                raise TypeError('invalid arguments ({0})'.format(err))
 
             # check if we have another class with this name. We can return existing
             # tag class only if one is exact copy of given class
@@ -351,7 +354,7 @@ class Library(QObject, Lockable):
                     raise LibraryError('tag class with name "{0}" already exists'.format(name))
 
             with self.transaction() as c:
-                c.execute('insert into tag_classes(name, value_type, hidden) ' \
+                c.execute('insert into tag_classes(name, value_type, hidden) '
                           'values(?, ?, ?)', (str(name), int(value_type), bool(is_hidden)))
                 tc.identity = Identity(self, c.lastrowid)
 
@@ -498,7 +501,7 @@ class Library(QObject, Lockable):
             old_tag = self.tag(tag_to_flush.identity)
 
             if old_tag is None:
-                tag_to_flush.identity = self.createTag(tag_to_flush.tagClass, \
+                tag_to_flush.identity = self.createTag(tag_to_flush.tagClass,
                                                        tag_to_flush.value).identity
             else:
                 if old_tag != tag_to_flush:
@@ -804,7 +807,7 @@ class Library(QObject, Lockable):
         with self.lock:
             return self._conn
 
-    def disconnect(self):
+    def disconnectDatabase(self):
         with self.lock:
             if self._conn:
                 self._conn.close()

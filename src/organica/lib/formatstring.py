@@ -341,7 +341,7 @@ class FormatString:
     @staticmethod
     def unregisterCustomBlock(block_name):
         if block_name in FormatString.custom_blocks:
-            FormatString.custom_blocks.remove(block_name)
+            del FormatString.custom_blocks[block_name]
 
     def __tagValue(self, tag_value, block):
         from organica.lib.objects import TagValue
@@ -419,7 +419,7 @@ class FormatString:
                     raise ParseError('only allowed values for "sort" parameter are "asc" and "desc"')
 
                 if len(values) == 1:
-                    formatted = formatted + str(values[0])
+                    formatted += str(values[0])
                 else:
                     overcount = False
                     try:
@@ -434,9 +434,9 @@ class FormatString:
                     end = str(token.getParam('end', '...'))
                     separator = str(token.getParam('separator', ', '))
 
-                    formatted = formatted + separator.join(values)
+                    formatted += separator.join(values)
                     if overcount:
-                        formatted = formatted + end
+                        formatted += end
 
         return formatted
 

@@ -21,6 +21,7 @@ class _Leaf(object):
 
 class TagsModel(QAbstractItemModel, Lockable):
     """Model represents library tag structure in hierarchical form.
+    This will not work correctly with queries using 'unused' conditions.
     """
 
     TagIdentityRole = Qt.UserRole + 200
@@ -33,8 +34,8 @@ class TagsModel(QAbstractItemModel, Lockable):
         self.__leaves = dict()  # dictionary of leaves by id
         self.__showHidden = False  # True if model should take hidden tags into account
         self.__lastNodeId = -1
-        self.__reset()
         self.__filter = None
+        self.__reset()
 
     @property
     def lib(self):
@@ -214,7 +215,7 @@ class TagsModel(QAbstractItemModel, Lockable):
     def __leafForIndex(self, index):
         if not index.isValid():
             return self.__leaves[-1]
-        return self.__leaves.get(index.internalId(), None)
+        return self.__leaves[index.internalId()]
 
     def flags(self, index):
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
@@ -285,4 +286,4 @@ class TagsModel(QAbstractItemModel, Lockable):
             if actual_tag is not None and actual_tag.className not in self.__hierarchy:
                 return []
 
-            return [self.__indexForLeaf(x) for x in self.__leaves.values() if x.tag == tag_identity]
+            return [self.__indexForLeaf(x) for x in self.__leaves if x.tag == tag_identity]
