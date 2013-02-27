@@ -47,6 +47,8 @@ def FormattedColumn(object):
 
 
 class ObjectsModel(QAbstractItemModel, Lockable):
+    NodeIdentityRole = Qt.UserRole + 200
+
     def __init__(self, lib):
         QAbstractItemModel.__init__(self)
         Lockable.__init__(self)
@@ -85,8 +87,11 @@ class ObjectsModel(QAbstractItemModel, Lockable):
         if index.isValid() and 0 <= index.row() < len(self.__cached_nodes) and 0 <= index.column() < len(self.__columns):
             node = self.lib.node(self.__cached_nodes[index.row()])
             if node is not None:
-                column_object = self.__columns[index.column()]
-                return column_object.data(index, node, role)
+                if role == self.NodeIdentityRole:
+                    return node.identity
+                else:
+                    column_object = self.__columns[index.column()]
+                    return column_object.data(index, node, role)
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):

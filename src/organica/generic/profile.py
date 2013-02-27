@@ -3,6 +3,7 @@ from PyQt4.QtGui import QComboBox
 from organica.lib.tagclassesmodel import TagClassesModel
 from organica.lib.filters import TagQuery
 from organica.utils.extend import globalObjectPool
+from organica.generic.extension import GENERIC_EXTENSION_UUID
 
 
 GENERIC_PROFILE_UUID = '7c73bb70-6720-11e2-bcfd-0800200c9a66'
@@ -68,7 +69,7 @@ class GenericProfileEnviron(object):
 
 
 class GenericProfile(object):
-    extensionUuid = ''
+    extensionUuid = GENERIC_EXTENSION_UUID
     group = 'profile'
     name = 'Generic profile'
     description = 'Can be used with any library, but provides only most common functions to ' \
@@ -77,9 +78,3 @@ class GenericProfile(object):
 
     def createProfileEnviron(self, environ):
         return GenericProfileEnviron(environ)
-
-
-def register():
-    # register generic profile
-    _genericProfile = GenericProfile()
-    globalObjectPool().add(_genericProfile)

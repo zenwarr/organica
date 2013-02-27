@@ -1,5 +1,5 @@
 import unittest
-from organica.lib.objects import Node, Tag, TagValue
+from organica.lib.objects import Node, Tag, TagValue, Identity
 from organica.lib.library import Library
 
 
@@ -52,6 +52,10 @@ class TestTag(unittest.TestCase):
 
         self.assertTrue(tag.passes(tag))
         self.assertFalse(tag.passes(Tag()))
+
+        flushed_tag = Tag(author_class, 'Lewis Carrol')
+        flushed_tag.identity = Identity(lib)
+        self.assertEqual(flushed_tag, tag)
 
         tag_ident = tag.identity
         tag.remove()

@@ -333,8 +333,6 @@ class MainWindow(QMainWindow):
             node.link(Tag(env.lib.tagClass('locator'), Locator.fromLocalFile(filename)))
             nodeEditDialog = NodeEditDialog(self, env.lib, [node])
             if nodeEditDialog.exec_() == NodeEditDialog.Accepted:
-                env.lib.flush(node)
-
                 if env.lib.storage is not None:
                     path_template = None
                     if env.lib.storage.testMeta('path_template'):

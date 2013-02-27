@@ -89,3 +89,6 @@ class Locator(object):
         cp = Locator(self.__url)
         cp.__lib = self.__lib  # do not deepcopy librar
         return cp
+
+    def __eq__(self, other):
+        return isinstance(other, Locator) and self.__url == other.__url

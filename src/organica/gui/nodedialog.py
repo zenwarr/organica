@@ -4,7 +4,7 @@ import copy
 
 from PyQt4.QtCore import Qt, QByteArray, QUrl
 from PyQt4.QtGui import QDialog, QListView, QTabWidget, QDialogButtonBox, QStandardItemModel, \
-                        QLineEdit, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel, QWidget, QStandardItem
+                        QLineEdit, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel, QWidget, QStandardItem, QIcon
 
 from organica.utils.helpers import tr
 from organica.utils.extend import globalObjectPool
@@ -29,7 +29,11 @@ class NodeEditDialog(QDialog):
         self.__nodes = []
         self.__editors = []  # contains tuples of (editor, generator)
         self.__currentEditor = None
+        self.__nodesLoaded = True
         self.autoFlush = True  # if true, nodes will be flushed by dialog on pressing OK
+        self.__selectedIndexes = []
+
+        self.setWindowTitle(tr('Edit nodes'))
 
         # create widgets
 
@@ -54,6 +58,7 @@ class NodeEditDialog(QDialog):
 
         # label displayed when no editors are loaded into dialog
         self.noEditorsLabel = QLabel(self)
+        self.noEditorsLabel.hide()
         self.noEditorsLabel.setText(tr('You have no editor extensions appliable'))
         self.noEditorsLabel.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
 
@@ -75,6 +80,11 @@ class NodeEditDialog(QDialog):
         layout.addLayout(nodesLayout)
         layout.addWidget(self.buttonBox)
 
+        self.nodeList.selectionModel().selectionChanged.connect(self.__onSelectionChanged)
+        self.tabsEditors.currentChanged.connect(self.__onEditorChanged)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
         with globalObjectPool().lock:
             # discover already registered editors
             for prov in globalObjectPool().objects(group=NODE_EDITOR_PROVIDER_GROUP):
@@ -88,11 +98,6 @@ class NodeEditDialog(QDialog):
             # we can add editors on-the-fly
             globalObjectPool().objectAdded.connect(self.__onObjectAdded)
             globalObjectPool().objectRemoved.connect(self.__onObjectRemoved)
-
-        self.nodeList.selectionModel().selectionChanged.connect(self.__onSelectionChanged)
-        self.tabsEditors.currentChanged.connect(self.__onEditorChanged)
-        self.buttonBox.accepted.connect(self.accept)
-        self.buttonBox.rejected.connect(self.reject)
 
         # restore saved dialog geometry
         qs = globalQuickSettings()
@@ -112,7 +117,7 @@ class NodeEditDialog(QDialog):
         If profile affinity does not allow editor to be shown on this library, no error raised.
         """
 
-        if provider is None or not hasattr(provider.group) or provider.group != NODE_EDITOR_PROVIDER_GROUP:
+        if provider is None or not hasattr(provider, 'group') or provider.group != NODE_EDITOR_PROVIDER_GROUP:
             raise TypeError('invalid argument: provider')
 
         # if we already have this provider added, switch to its tab
@@ -128,21 +133,22 @@ class NodeEditDialog(QDialog):
         # create editor
         try:
             editor = provider.create(self.lib)
-        except:
-            logger.error('provider failed to create editor')
+        except Exception as err:
+            logger.error('provider failed to create editor: {0}'.format(err))
             return
 
-        if not isinstance(editor, QWidget) or not all((hasattr(editor, aname) for aname in ('load', 'save'))):
+        if not isinstance(editor, QWidget) or not all((hasattr(editor, aname) for aname in ('load', 'getModified', 'reset'))):
             logger.error('node editor does not support required interface')
             return
 
         # if we have 'no editors' label, remove it
         if not self.__editors and self.tabsEditors.count():
+            self.noEditorsLabel.hide()
             self.tabsEditors.removeTab(0)
 
         editor_icon = editor.icon if hasattr(editor, 'icon') else None
         editor_title = editor.title if hasattr(editor, 'title') else 'Unknown'
-        self.tabsEditors.addTab(editor, editor_icon, editor_title)
+        self.tabsEditors.addTab(editor, editor_icon or QIcon(), editor_title)
         self.__editors.append((editor, provider))
 
     @property
@@ -199,7 +205,7 @@ class NodeEditDialog(QDialog):
             node_copy = copy.deepcopy(node)
             item.setData(node_copy, Qt.UserRole)
             self.nodesModel.appendRow(item)
-            self.nodes.append(node_copy)
+            self.__nodes.append(node_copy)
 
         if self.nodesModel.rowCount():
             self.nodeList.setCurrentIndex(self.nodesModel.index(0, 0))
@@ -239,8 +245,8 @@ class NodeEditDialog(QDialog):
         """Saves information editor has made to all selected nodes. Use this method when
         current editor changes or when set of selected nodes is altered.
         """
-        single_node_edited = len(self.nodeList.selectedIndexes()) == 1
-        for selected_node_index in self.nodeList.selectedIndexes():
+        single_node_edited = len(self.__selectedIndexes) == 1
+        for selected_node_index in self.__selectedIndexes:
             node = selected_node_index.data(Qt.UserRole)
 
             # save display name
@@ -256,7 +262,9 @@ class NodeEditDialog(QDialog):
     def __load(self):
         """Loads information in active editor.
         """
-        nodes = [index.data(Qt.UserRole) for index in self.nodeList.selectedIndexes()]
+        self.__nodesLoaded = False
+        self.__selectedIndexes = self.nodeList.selectedIndexes()
+        nodes = [index.data(Qt.UserRole) for index in self.__selectedIndexes]
 
         self.txtDisplayName.clear()
         self.txtDisplayName.setEnabled(bool(nodes))
@@ -274,14 +282,22 @@ class NodeEditDialog(QDialog):
             if nodes:
                 try:
                     self.__currentEditor.load(nodes)
+                    self.__nodesLoaded = True
                 except Exception as err:
                     logger.error('node editor failed to load nodes: {0}'.format(err))
+            else:
+                try:
+                    self.__currentEditor.reset()
+                except Exception as err:
+                    logger.error('node editor failed to reset: {0}'.format(err))
 
     def __showNoEditorsPage(self):
         if not self.__editors and not self.tabsEditors.count():
             self.tabsEditors.addTab(self.noEditorsLabel, tr('Message'))
+            self.noEditorsLabel.show()
             self.tabsEditors.setCurrentIndex(self.tabsEditors.indexOf(self.noEditorsLabel))
 
     def __onSelectionChanged(self, selected, deselected):
-        self.__save()
+        if self.__nodesLoaded:
+            self.__save()
         self.__load()

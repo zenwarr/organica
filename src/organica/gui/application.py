@@ -123,8 +123,8 @@ class Application(QApplication):
 
         #todo: redirect standart io channels
 
-        import organica.generic.profile
-        organica.generic.profile.register()
+        from organica.generic.extension import register
+        register()
 
         globalPluginManager().loadPlugins()
 

@@ -1,10 +1,11 @@
 import copy
-from PyQt4.QtCore import Qt
-from PyQt4.QtGui import QWidget, QAbstractItemModel, QModelIndex, QTreeView, QToolButton, \
-                        QHBoxLayout, QVBoxLayout, QDialog, QMessageBox
+from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex
+from PyQt4.QtGui import QWidget, QTreeView, QToolButton, QHBoxLayout, QVBoxLayout, QDialog, QMessageBox, QLineEdit, \
+                        QFormLayout, QDialogButtonBox
 from organica.generic.extension import GENERIC_EXTENSION_UUID
-from organica.library.objects import Node, Tag
+from organica.lib.objects import Node, Tag, TagValue
 from organica.utils.helpers import cicompare, tr
+from organica.gui.dialog import Dialog
 
 
 class GenericNodeEditorProvider(object):
@@ -16,18 +17,20 @@ class GenericNodeEditorProvider(object):
 
 
 class GenericNodeEditor(QWidget):
-    def __init__(self, lib):
-        QWidget.__init__(self)
+    def __init__(self, lib, parent=None):
+        QWidget.__init__(self, parent)
         self.lib = lib
 
         self.tagTree = QTreeView(self)
-        self.tagsModel = GenericTagsModel()
+        self.tagsModel = GenericTagsModel(lib)
         self.tagTree.setModel(self.tagsModel)
 
-        self.btnAddTag = QToolButton(tr('Add tag'), self)
+        self.btnAddTag = QToolButton(self)
+        self.btnAddTag.setText(tr('Add tag'))
         self.btnAddTag.clicked.connect(self.addTag)
 
-        self.btnRemoveTag = QToolButton(tr('Remove tag'), self)
+        self.btnRemoveTag = QToolButton(self)
+        self.btnRemoveTag.setText(tr('Remove tag'))
         self.btnRemoveTag.clicked.connect(self.removeTag)
 
         self.buttonsLayout = QHBoxLayout()
@@ -42,12 +45,17 @@ class GenericNodeEditor(QWidget):
         self.originalCommonTags = []
 
     def load(self, nodes):
-        self.originalCommonTags = [copy.deepcopy(tag) for tag in Node.commonTags(self.originalNodes)]
-        self.tagsModel.tags = self.originalCommonTags
+        self.originalCommonTags = [copy.deepcopy(tag) for tag in Node.commonTags(nodes)]
+        self.tagsModel.load(self.originalCommonTags)
+        self.tagTree.expandAll()
 
     def getModified(self, original_node):
-        return [tag for tag in original_node.allTags if tag not in self.originalCommonTags] + \
-               self.tagsModel.tags
+        node_tags = [tag for tag in original_node.allTags if tag not in self.originalCommonTags] + self.tagsModel.tags
+        original_node.allTags = node_tags
+        return original_node
+
+    def reset(self):
+        self.tagsModel.load([])
 
     def addTag(self):
         """Brings dialog to enter name/value of new tag and then adds new tag to list"""
@@ -63,7 +71,9 @@ class GenericNodeEditor(QWidget):
 
 
 class GenericTagsModel(QAbstractItemModel):
-    def TagGroup(object):
+    _TOPLEVEL_GROUP_INDEX = 4294967295  # 2**32 - 1
+
+    class TagGroup(object):
         def __init__(self, name, tags):
             self.name = name
             self.tags = tags
@@ -71,15 +81,16 @@ class GenericTagsModel(QAbstractItemModel):
     def __init__(self, lib):
         QAbstractItemModel.__init__(self)
         self.__groups = []
-        self.__tags = []
         self.lib = lib
 
     def load(self, tags):
         """Load list of tags into model"""
+        self.__groups = []
+
         groups = dict()
         for tag in tags:
             tag_copy = copy.deepcopy(tag)
-            if groups.contains(tag.className):
+            if tag.className in groups:
                 groups[tag.className].append(tag_copy)
             else:
                 groups[tag.className] = [tag_copy]
@@ -97,9 +108,9 @@ class GenericTagsModel(QAbstractItemModel):
         return result
 
     def flags(self, index):
-        if not index.isValid() or (index.internalId() == -1 and index.column() == 1):
+        if not index.isValid() or (index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 1):
             return Qt.ItemIsEnabled
-        elif index.internalId() != -1 and index.column() == 0:
+        elif index.internalId() != self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
             return Qt.ItemIsEnabled
         else:
             return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
@@ -107,23 +118,23 @@ class GenericTagsModel(QAbstractItemModel):
     def index(self, row, column, parent=QModelIndex()):
         if not parent.isValid():
             if 0 <= row < len(self.__groups):
-                return self.createIndex(row, column, -1)
-        elif parent.internalId() == -1 and parent.column() == 0:
-            if 0 <= row < len(self.__groups[parent.row()]):
+                return self.createIndex(row, column, self._TOPLEVEL_GROUP_INDEX)
+        elif parent.internalId() == self._TOPLEVEL_GROUP_INDEX and parent.column() == 0:
+            if 0 <= row < len(self.__groups[parent.row()].tags):
                 return self.createIndex(row, column, parent.row())
         return QModelIndex()
 
     def parent(self, index):
-        if not index.isValid() or index.internalId() == -1:
+        if not index.isValid() or index.internalId() == self._TOPLEVEL_GROUP_INDEX:
             return QModelIndex()
         else:
-            self.createIndex(index.internalId(), 0, -1)
+            return self.createIndex(index.internalId(), 0, self._TOPLEVEL_GROUP_INDEX)
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
 
-        if index.internalId() == -1:
+        if index.internalId() == self._TOPLEVEL_GROUP_INDEX:
             if index.column() == 0:
                 if role in (Qt.DisplayRole, Qt.EditRole):
                     return self.__groups[index.row()].name
@@ -132,29 +143,35 @@ class GenericTagsModel(QAbstractItemModel):
             if (0 <= group_index < len(self.__groups)) and (0 <= index.row() <
                             len(self.__groups[group_index].tags)) and index.column() == 1:
                 if role in (Qt.DisplayRole, Qt.EditRole):
-                    return str(self.__groups[group_index].tags[index.row()])
+                    return str(self.__groups[group_index].tags[index.row()].value)
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal:
+            if role == Qt.DisplayRole:
+                if section == 0:
+                    return tr('Class name')
+                elif section == 1:
+                    return tr('Value')
         return None
 
     def rowCount(self, index=QModelIndex()):
         if not index.isValid():
             return len(self.__groups)
-        elif index.internalId() == -1 and index.column() == 0:
+        elif index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
             if 0 <= index.row() < len(self.__groups):
                 return len(self.__groups[index.row()].tags)
         return 0
 
     def columnCount(self, index=QModelIndex()):
-        return 2 if (not index.isValid() or (index.internalId() == -1 and index.column() == 0)) else 0
+        return 2 if (not index.isValid() or (index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0)) else 0
 
     def setData(self, index, value, role=Qt.EditRole):
         if not index.isValid() or role == Qt.EditRole:
             return False
 
         # first case - change group name
-        if index.internalId() == -1 and index.column() == 0:
+        if index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
             old_group_name = self.__groups[index.row()].name
             if old_group_name == value:
                 return True
@@ -167,7 +184,7 @@ class GenericTagsModel(QAbstractItemModel):
                     tags_to_add = [tag for tag in self.__groups[index.row()].tags if tag not in group.tags]
 
                     if tags_to_add:
-                        self.beginInsertRows(self.createIndex(group_index, 0, -1), len(group.tags),
+                        self.beginInsertRows(self.createIndex(group_index, 0, self._TOPLEVEL_GROUP_INDEX), len(group.tags),
                                              len(group.tags) + len(tags_to_add))
                         group.tags += tags_to_add
                         self.endInsertRows()
@@ -223,7 +240,7 @@ class GenericTagsModel(QAbstractItemModel):
         if any(q.passes(tag) for tag in group.tags):
             return QModelIndex()
 
-        self.beginInsertRows(self.createIndex(group_index, 0, -1), len(group.tags), len(group.tags))
+        self.beginInsertRows(self.createIndex(group_index, 0, self._TOPLEVEL_GROUP_INDEX), len(group.tags), len(group.tags))
         group.tags.append(Tag(self.lib.tagClass(class_name), tag_value))
         self.endInsertRows()
 
@@ -232,27 +249,37 @@ class GenericTagsModel(QAbstractItemModel):
             return
 
         # we can remove entire group!
-        if index.internalId() == -1 and index.column() == 0:
+        if index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
             self.beginRemoveRows(QModelIndex(), index.row(), index.row())
             del self.__groups[index.row()]
             self.endRemoveRows()
-        elif index.internalId() != -1 and index.column() == 1:
-            self.beginRemoveRows(self.createIndex(index.internalId(), 0, -1), index.row(), index.row())
+        elif index.internalId() != self._TOPLEVEL_GROUP_INDEX and index.column() == 1:
+            self.beginRemoveRows(self.createIndex(index.internalId(), 0, self._TOPLEVEL_GROUP_INDEX), index.row(), index.row())
             del self.__groups[index.internalId()].tags[index.row()]
             self.endRemoveRows()
 
 
-class AddTagDialog(QDialog):
+class AddTagDialog(Dialog):
     def __init__(self, parent, lib):
-        QDialog.__init__(self, parent)
+        Dialog.__init__(self, parent, name='generic_add_tag_dialog')
         self.lib = lib
+
+        self.setWindowTitle(tr('Add tag'))
 
         self.txtClassName = QLineEdit(self)
         self.txtValue = QLineEdit(self)
+        self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
 
         self.layout = QVBoxLayout(self)
-        self.layout.addWidget(self.txtClassName)
-        self.layout.addWidget(self.txtValue)
+
+        formLayout = QFormLayout()
+        formLayout.addRow(tr('Class name'), self.txtClassName)
+        formLayout.addRow(tr('Value'), self.txtValue)
+
+        self.layout.addLayout(formLayout)
+        self.layout.addWidget(self.buttonBox)
 
     @property
     def className(self):
@@ -260,7 +287,7 @@ class AddTagDialog(QDialog):
 
     @property
     def tagValue(self):
-        return self.txtValue.text()
+        return TagValue(self.txtValue.text())
 
     def accept(self):
         if not self.lib.tagClass(self.txtClassName.text()):

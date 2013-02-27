@@ -438,7 +438,9 @@ class Tag(LibraryObject):
         if self.isFlushed and other.isFlushed and self.identity != other.identity:
             return False
 
-        return self.tagClass == other.tagClass and self.value == other.value
+        r = self.tagClass == other.tagClass
+        r = r and self.value == other.value
+        return r
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -470,6 +472,10 @@ class Node(LibraryObject):
 
         self.ensureTagsFetched()
         return deepcopy(self.__allTags)
+
+    @allTags.setter
+    def allTags(self, new_tags):
+        self.setAllTags(new_tags)
 
     def setAllTags(self, value):
         """Overrides list containing tags linked with given value. Value should be list of Tag objects.
