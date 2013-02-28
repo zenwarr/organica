@@ -65,6 +65,7 @@ class ObjectsView(QWidget):
 
         if isinstance(item, QModelIndex):
             item = item.data(ObjectsModel.NodeIdentityRole)
+            item = item.lib.node(item)
 
         if item is None:
             return

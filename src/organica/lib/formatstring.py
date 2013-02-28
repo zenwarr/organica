@@ -218,9 +218,45 @@ class _FormatStringParser:
             self.__head += 1
         return params
 
+    _supported_escape_sequences = {
+        '\\': '\\',
+        't': '\t',
+        'n': '\n',
+        '\'': '\'',
+        '"': '"',
+        'a': '\a',
+        'b': '\b',
+        'f': '\f',
+        'r': '\r',
+        'v': '\v'
+    }
+
     @staticmethod
     def __processEscapes(text):
-        return bytes(text, 'utf-8').decode('unicode_escape')
+        # I'm failed to make old variant work with non-ascii characters.
+        # return str(bytes(text, 'utf-8').decode('unicode_escape'))
+        result_text = ''
+        tail, head = 0, 0
+        escaping = False
+        for char_index in range(len(text)):
+            char = text[char_index]
+            if escaping:
+                if char in _FormatStringParser._supported_escape_sequences:
+                    result_text += text[tail:head] + _FormatStringParser._supported_escape_sequences[char]
+                    tail = head = char_index + 1
+                else:
+                    logger.debug('unknown escape sequence \\{0}, skipping'.format(char))
+            elif char == '\\':
+                escaping = True
+            else:
+                head += 1
+
+        if escaping:
+            logger.debug('bad escape sequence at end of string')
+            result_text += text[tail:-1]
+        elif head != tail:
+            result_text += text[tail:head]
+        return result_text
 
 
 class FormatString:

@@ -780,6 +780,7 @@ class Library(QObject, Lockable):
             if int(row[0]) not in self._nodes:
                 node = Node(row[1])
                 node.identity = Identity(self, row[0])
+                node.displayNameTemplate = str(row[1])
                 self._nodes[node.id] = node
             r.append(deepcopy(self._nodes[int(row[0])]))
         return r

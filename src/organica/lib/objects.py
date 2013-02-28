@@ -438,9 +438,7 @@ class Tag(LibraryObject):
         if self.isFlushed and other.isFlushed and self.identity != other.identity:
             return False
 
-        r = self.tagClass == other.tagClass
-        r = r and self.value == other.value
-        return r
+        return self.tagClass == other.tagClass and self.value == other.value
 
     def __ne__(self, other):
         return not self.__eq__(other)
