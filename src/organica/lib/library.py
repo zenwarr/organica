@@ -80,6 +80,9 @@ class Library(QObject, Lockable):
     linkCreated = pyqtSignal(Node, Tag)
     linkRemoved = pyqtSignal(Node, Tag)
 
+    classCreated = pyqtSignal(TagClass)
+    classRemoved = pyqtSignal(TagClass)
+
     def __init__(self):
         QObject.__init__(self)
         Lockable.__init__(self)
@@ -360,6 +363,9 @@ class Library(QObject, Lockable):
 
             # update cached
             self._tagClasses[tc.name.lower()] = deepcopy(tc)
+
+            self.classCreated.emit(deepcopy(tc))
+
             return tc
 
     getOrCreateTagClass = createTagClass
@@ -392,6 +398,8 @@ class Library(QObject, Lockable):
 
             # update cache
             del self._tagClasses[r_class.name.lower()]
+
+            self.classRemoved.emit(deepcopy(tag_class))
 
     def _tagsFromQuery(self, cursor):
         """Get tag list from query results. Assume that rows are (id, class_id, value_type, value)
