@@ -28,11 +28,11 @@ def tr(text, context='', disambiguation=None):
 
 
 def cicompare(first, second):
-    # use str.casefold if available
-    if hasattr(first, 'casefold') and hasattr(second, 'casefold'):
-        return first.casefold() == second.casefold()
-    else:
-        return first.lower() == second.lower()
+    return uncase(first) == uncase(second)
+
+
+def uncase(text):
+    return text.casefold() if hasattr(text, 'casefold') else text.lower()
 
 
 def readJsonFile(source):
