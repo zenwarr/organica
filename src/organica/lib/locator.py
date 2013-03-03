@@ -7,7 +7,7 @@ from organica.utils.helpers import cicompare
 class Locator(object):
     MANAGED_FILES_SCHEME = 'storage'
 
-    def __init__(self, url):
+    def __init__(self, url=''):
         self.__url = QUrl(url)
         self.__lib = None
 

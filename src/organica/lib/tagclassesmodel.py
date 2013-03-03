@@ -6,12 +6,13 @@ from organica.utils.helpers import uncase
 class TagClassesModel(QStandardItemModel):
     TagClassIdentityRole = Qt.UserRole + 200
 
-    def __init__(self, parent=None):
-        QStandardItemModel.__init__(self, parent)
+    def __init__(self, lib=None):
+        QStandardItemModel.__init__(self)
         self.__showHidden = False
         self.__showSpecialClass = False
         self.__specialClassName = ''
         self.__lib = None
+        self.lib = lib
 
     @property
     def lib(self):

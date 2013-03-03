@@ -409,7 +409,7 @@ class FormatString:
             else:
                 raise ParseError('unknown value for "locator" parameter: {0}'.format(mode))
         elif tag_value.valueType == TagValue.TYPE_NODE_REFERENCE:
-            obj_identity = tag_value.objectReference
+            obj_identity = tag_value.nodeReference
             if obj_identity.isFlushed:
                 return obj_identity.lib.object(obj_identity).displayNameTemplate
             else:

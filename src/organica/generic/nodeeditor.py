@@ -1,11 +1,12 @@
 import copy
 from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex
 from PyQt4.QtGui import QWidget, QTreeView, QToolButton, QHBoxLayout, QVBoxLayout, QDialog, QMessageBox, QLineEdit, \
-                        QFormLayout, QDialogButtonBox
+                        QFormLayout, QDialogButtonBox, QComboBox, QSizePolicy, QCheckBox, QValidator, QLabel
 from organica.generic.extension import GENERIC_EXTENSION_UUID
 from organica.lib.objects import Node, Tag, TagValue
 from organica.utils.helpers import cicompare, tr
 from organica.gui.dialog import Dialog
+from organica.lib.tagclassesmodel import TagClassesModel
 
 
 class GenericNodeEditorProvider(object):
@@ -60,8 +61,11 @@ class GenericNodeEditor(QWidget):
     def addTag(self):
         """Brings dialog to enter name/value of new tag and then adds new tag to list"""
         dlg = AddTagDialog(self, self.lib)
+        current_class = self.tagTree.currentIndex().data(GenericTagsModel.TAG_CLASS_ROLE)
+        if current_class:
+            dlg.tagClass = current_class
         if dlg.exec_() == AddTagDialog.Accepted:
-            new_index = self.tagsModel.addTag(dlg.className, dlg.tagValue)
+            new_index = self.tagsModel.addTag(dlg.tagClass, dlg.tagValue)
             if new_index is not None and new_index.isValid():
                 self.tagTree.setCurrentIndex(new_index)
 
@@ -72,10 +76,11 @@ class GenericNodeEditor(QWidget):
 
 class GenericTagsModel(QAbstractItemModel):
     _TOPLEVEL_GROUP_INDEX = 4294967295  # 2**32 - 1
+    TAG_CLASS_ROLE = Qt.UserRole + 200
 
     class TagGroup(object):
-        def __init__(self, name, tags):
-            self.name = name
+        def __init__(self, tagClass, tags):
+            self.tagClass = tagClass
             self.tags = tags
 
     def __init__(self, lib):
@@ -90,13 +95,13 @@ class GenericTagsModel(QAbstractItemModel):
         groups = dict()
         for tag in tags:
             tag_copy = copy.deepcopy(tag)
-            if tag.className in groups:
-                groups[tag.className].append(tag_copy)
+            if tag.tagClass in groups:
+                groups[tag.tagClass].append(tag_copy)
             else:
-                groups[tag.className] = [tag_copy]
+                groups[tag.tagClass] = [tag_copy]
 
-        for class_name in groups.keys():
-            self.__groups.append(GenericTagsModel.TagGroup(class_name, groups[class_name]))
+        for tag_class in groups.keys():
+            self.__groups.append(GenericTagsModel.TagGroup(tag_class, groups[tag_class]))
 
         self.reset()
 
@@ -137,13 +142,17 @@ class GenericTagsModel(QAbstractItemModel):
         if index.internalId() == self._TOPLEVEL_GROUP_INDEX:
             if index.column() == 0:
                 if role in (Qt.DisplayRole, Qt.EditRole):
-                    return self.__groups[index.row()].name
+                    return self.__groups[index.row()].tagClass.name
+                elif role == self.TAG_CLASS_ROLE:
+                    return self.__groups[index.row()].tagClass
         else:
             group_index = index.internalId()
             if (0 <= group_index < len(self.__groups)) and (0 <= index.row() <
                             len(self.__groups[group_index].tags)) and index.column() == 1:
                 if role in (Qt.DisplayRole, Qt.EditRole):
                     return str(self.__groups[group_index].tags[index.row()].value)
+                elif role == self.TAG_CLASS_ROLE:
+                    return self.__groups[group_index].tagClass
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -172,14 +181,14 @@ class GenericTagsModel(QAbstractItemModel):
 
         # first case - change group name
         if index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
-            old_group_name = self.__groups[index.row()].name
+            old_group_name = self.__groups[index.row()].tagClass.name
             if old_group_name == value:
                 return True
 
             group_index = 0
             # if we already have another group with this name, join it
             for group in self.__groups:
-                if group.name == value:
+                if group.tagClass.name == value:
                     # add only tags from group user renamed that are not in another group
                     tags_to_add = [tag for tag in self.__groups[index.row()].tags if tag not in group.tags]
 
@@ -207,7 +216,7 @@ class GenericTagsModel(QAbstractItemModel):
             # change tag value. If we have tag with same name and value, fail
             from organica.lib.filters import TagQuery
 
-            q = TagQuery(tag_class=group.name, value=value)
+            q = TagQuery(tag_class=group.tagClass.name, value=value)
             if any(q.passes(tag) for tag in group.tags):
                 return False
 
@@ -216,18 +225,18 @@ class GenericTagsModel(QAbstractItemModel):
 
         return False
 
-    def addTag(self, class_name, tag_value):
+    def addTag(self, tag_class, tag_value):
         """Adds new tag to model and returns index of this tag."""
 
         # we should find group index for this tag. If group does not exist, create it
         group_index = 0
         for group in self.__groups:
-            if cicompare(group.name, class_name):
+            if group.tagClass == tag_class:
                 break
             group_index += 1
         else:
             self.beginInsertRows(QModelIndex(), len(self.__groups), len(self.__groups))
-            self.__groups.append(GenericTagsModel.TagGroup(class_name, []))
+            self.__groups.append(GenericTagsModel.TagGroup(tag_class, []))
             group_index = len(self.__groups) - 1
             self.endInsertRows()
 
@@ -236,12 +245,12 @@ class GenericTagsModel(QAbstractItemModel):
         # check if have duplicated tag in this group
         from organica.lib.filters import TagQuery
 
-        q = TagQuery(tag_class=class_name, value=tag_value)
+        q = TagQuery(tag_class=tag_class, value=tag_value)
         if any(q.passes(tag) for tag in group.tags):
             return QModelIndex()
 
         self.beginInsertRows(self.createIndex(group_index, 0, self._TOPLEVEL_GROUP_INDEX), len(group.tags), len(group.tags))
-        group.tags.append(Tag(self.lib.tagClass(class_name), tag_value))
+        group.tags.append(Tag(tag_class, tag_value))
         self.endInsertRows()
 
     def remove(self, index):
@@ -261,37 +270,142 @@ class GenericTagsModel(QAbstractItemModel):
 
 class AddTagDialog(Dialog):
     def __init__(self, parent, lib):
+        from organica.generic.valueeditwidget import ValueEditWidget
+
         Dialog.__init__(self, parent, name='generic_add_tag_dialog')
         self.lib = lib
 
         self.setWindowTitle(tr('Add tag'))
 
-        self.txtClassName = QLineEdit(self)
-        self.txtValue = QLineEdit(self)
+        self.classNameCombo = QComboBox(self)
+        self.classNameCombo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.classNameModel = TagClassesModel(self.lib)
+        self.classNameCombo.setModel(self.classNameModel)
+
+        self.addClassButton = QToolButton(self)
+        self.addClassButton.setText(tr('New class'))
+        self.addClassButton.clicked.connect(self.__addClass)
+
+        self.lblValueType = QLabel(self)
+
+        self.valueEdit = ValueEditWidget(self, self.lib)
+
         self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self)
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
 
-        self.layout = QVBoxLayout(self)
+        self.classNameCombo.currentIndexChanged[str].connect(self.__onCurrentClassChanged)
+        self.__onCurrentClassChanged(self.classNameCombo.currentText())
+
+        classLayout = QHBoxLayout()
+        classLayout.addWidget(self.classNameCombo)
+        classLayout.addWidget(self.addClassButton)
 
         formLayout = QFormLayout()
-        formLayout.addRow(tr('Class name'), self.txtClassName)
-        formLayout.addRow(tr('Value'), self.txtValue)
+        formLayout.addRow(tr('Class name'), classLayout)
+        formLayout.addRow('', self.lblValueType)
+        formLayout.addRow(tr('Value'), self.valueEdit)
 
-        self.layout.addLayout(formLayout)
-        self.layout.addWidget(self.buttonBox)
+        layout = QVBoxLayout(self)
+        layout.addLayout(formLayout)
+        layout.addWidget(self.buttonBox)
 
     @property
-    def className(self):
-        return self.txtClassName.text()
+    def tagClass(self):
+        return self.lib.tagClass(self.classNameCombo.currentText())
+
+    @tagClass.setter
+    def tagClass(self, new_class):
+        self.classNameCombo.setCurrentIndex(self.classNameCombo.findText(new_class.name))
 
     @property
     def tagValue(self):
-        return TagValue(self.txtValue.text())
+        return TagValue(self.valueEdit.value)
+
+    @tagValue.setter
+    def tagValue(self, new_value):
+        self.valueEdit.value = new_value
+
+    def __onCurrentClassChanged(self, class_name):
+        self.valueEdit.setEnabled(bool(class_name))
+
+        value_type = TagValue.TYPE_NONE
+        if class_name:
+            tag_class = self.lib.tagClass(class_name)
+            if tag_class:
+                value_type = tag_class.valueType
+        self.valueEdit.valueType = value_type
+
+        self.lblValueType.setText(tr('(of type {0})').format(TagValue.typeString(value_type)))
+
+    def __addClass(self):
+        CreateClassDialog(self, self.lib).exec_()
 
     def accept(self):
-        if not self.lib.tagClass(self.txtClassName.text()):
+        if not self.lib.tagClass(self.classNameCombo.currentText()):
             QMessageBox.information(self, tr('Error'), tr('No tag class {0} in current library!' \
-                            .format(self.txtClassName.text())))
+                            .format(self.classNameCombo.text())))
         else:
             QDialog.accept(self)
+
+
+_value_types_data = {
+    TagValue.TYPE_NONE: (tr('None')),
+    TagValue.TYPE_LOCATOR: (tr('Locator')),
+    TagValue.TYPE_NODE_REFERENCE: (tr('Node reference')),
+    TagValue.TYPE_NUMBER: (tr('Number')),
+    TagValue.TYPE_TEXT: (tr('Text')),
+}
+
+
+class CreateClassDialog(Dialog):
+    def __init__(self, parent, lib):
+        Dialog.__init__(self, parent, name='generic_new_class_dialog')
+        self.lib = lib
+
+        self.setWindowTitle(tr('New class'))
+
+        self.txtName = QLineEdit(self)  #todo: validator
+        self.txtName.setValidator(ClassNameValidator())
+        self.cmbType = QComboBox(self)
+        self.cmbType.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # fill with available types
+        global _value_types_data
+        for type_index in _value_types_data:
+            self.cmbType.addItem(_value_types_data[type_index], type_index)
+        # set TYPE_TEXT to be default type
+        self.cmbType.setCurrentIndex(self.cmbType.findData(TagValue.TYPE_TEXT))
+        self.chkHidden = QCheckBox(self)
+
+        self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel, Qt.Horizontal, self)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        formLayout = QFormLayout()
+        formLayout.addRow(tr('Name'), self.txtName)
+        formLayout.addRow(tr('Value type'), self.cmbType)
+        formLayout.addRow(tr('Hidden'), self.chkHidden)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(formLayout)
+        layout.addWidget(self.buttonBox)
+
+    def accept(self):
+        # create this class
+        try:
+            value_type = self.cmbType.itemData(self.cmbType.currentIndex(), Qt.UserRole)
+            self.__createdClass = self.lib.createTagClass(self.txtName.text(), value_type, self.chkHidden.isChecked())
+        except Exception as err:
+            QMessageBox.warning(self, tr('Error while creating class'), tr('Failed to create class: {0}').format(err))
+        else:
+            QDialog.accept(self)
+
+
+class ClassNameValidator(QValidator):
+    def __init__(self):
+        QValidator.__init__(self)
+
+    def validate(self, input, pos):
+        from organica.lib.objects import isCorrectIdent
+
+        return (self.Acceptable, input, pos) if isCorrectIdent(input) else (self.Invalid, input, pos)

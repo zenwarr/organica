@@ -511,21 +511,21 @@ class _Tag_Locator(object):
 
 
 class _Tag_Object(object):
-    def __init__(self, objectReference):
-        self.objectReference = objectReference
+    def __init__(self, nodeReference):
+        self.nodeReference = nodeReference
 
     def passes(self, tag):
-        return tag is not None and tag.value.objectReference == self.objectReference
+        return tag is not None and tag.value.nodeReference == self.nodeReference
 
     def generateSql(self):
-        if self.objectReference.isFlushed:
+        if self.nodeReference.isFlushed:
             return 'value_type = {0} and value = {1}' \
-                    .format(TagValue.TYPE_NODE_REFERENCE, self.objectReference.id)
+                    .format(TagValue.TYPE_NODE_REFERENCE, self.nodeReference.id)
         else:
             return _Filter_Block().generateSql()
 
     def qeval(self):
-        return 0 if not self.objectReference.isFlushed else -1
+        return 0 if not self.nodeReference.isFlushed else -1
 
 
 class _Tag_ValueType(object):
@@ -562,7 +562,7 @@ class _Tag_Value(object):
         elif self.value.valueType == TagValue.TYPE_LOCATOR:
             return _Tag_Locator(self.value.locator).generateSql()
         elif self.value.valueType == TagValue.TYPE_NODE_REFERENCE:
-            return _Tag_Object(self.value.objectReference).generateSql()
+            return _Tag_Object(self.value.nodeReference).generateSql()
         elif self.value.valueType == TagValue.TYPE_NONE:
             return _Tag_NoneValue().generateSql()
         else:

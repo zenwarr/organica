@@ -107,7 +107,7 @@ class TagValue(object):
                 TagValue.TYPE_NUMBER: ('Number', 'number', (int, float), None, None),
                 TagValue.TYPE_LOCATOR: ('Locator', 'locator', (Locator, ), (lambda l: l.databaseForm),
                                (lambda c, d: Locator(d))),
-                TagValue.TYPE_NODE_REFERENCE: ('Object reference', 'objectReference', (Identity, Node),
+                TagValue.TYPE_NODE_REFERENCE: ('Node reference', 'nodeReference', (Identity, Node),
                                         (lambda obj: obj.id), dec_object)
             }
         return TagValue.__type_traits
@@ -126,9 +126,15 @@ class TagValue(object):
             self.__checkValueTypeCorrect(value_type)
             traits = self._type_traits()[value_type]
             if type(value) not in traits[2]:
-                expected = ' or '.join([x.__name__ for x in traits[2]])
-                raise TypeError('invalid value type for {0} ({1}) - {2} expected'
-                        .format(value_type, self.typeString(value_type), expected))
+                if value is None:
+                    # construct default value for this type
+                    self.value = traits[2][0]()
+                    self.__valueType = value_type
+                    return
+                else:
+                    expected = ' or '.join([x.__name__ for x in traits[2]])
+                    raise TypeError('invalid value type for {0} ({1}) - {2} expected'
+                            .format(value_type, self.typeString(value_type), expected))
 
             if value_type != self.TYPE_NONE:
                 self.value = value
@@ -249,7 +255,39 @@ class TagValue(object):
         return traits[0]
 
     def __str__(self):
+        if self.valueType == self.TYPE_NODE_REFERENCE:
+            # do not show user this stuff...
+            lib = self.value.lib
+            if isinstance(self.value, Identity):
+                node = lib.node(self.value)
+            return node.displayName
         return str(self.value)
+
+    def convertTo(self, target_type):
+        """Converts from one value type to another when it is possible.
+        """
+        from organica.lib.locator import Locator
+
+        if target_type == self.valueType:
+            return TagValue(self)
+        elif self.valueType == self.TYPE_NONE:
+            return TagValue(None, target_type)
+
+        if target_type == self.TYPE_NONE:
+            return TagValue()
+        elif target_type == self.TYPE_TEXT:
+            return TagValue(str(self), self.TYPE_TEXT)
+        elif target_type == self.TYPE_NUMBER:
+            if self.valueType == self.TYPE_TEXT:
+                try:
+                    return TagValue(int(self.text))
+                except ValueError as err:
+                    return TagValue(0)
+            elif self.valueType == self.TYPE_NODE_REFERENCE:
+                return TagValue(self.nodeReference.id)
+        elif target_type == self.TYPE_LOCATOR:
+            return TagValue(Locator(self.text))
+        return TagValue(None, target_type)
 
 
 class LibraryObject(object):
@@ -364,6 +402,9 @@ class TagClass(LibraryObject):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def __hash__(self):
+        return self.id
 
 
 class Tag(LibraryObject):

@@ -39,7 +39,7 @@ class Application(QApplication):
         self.setApplicationName('Organica')
         self.setOrganizationName('zenwarr')
         self.setOrganizationDomain('http://github.org/zenwarr/organica')
-        self.setApplicationVersion('0.0.1 pre-alpha')
+        self.setApplicationVersion('0.0.1 indev')
 
     def startUp(self):
         logging.basicConfig()
