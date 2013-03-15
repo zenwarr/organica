@@ -99,15 +99,12 @@ class ObjectsView(QWidget):
         """Starts edit dialog for all selected nodes and flushes changes"""
         from organica.gui.nodedialog import NodeEditDialog
 
-        nodes = [index.data(ObjectsModel.NodeIdentityRole) for index in self.view.selectionModel().selectedRows()]
-        if nodes:
-            lib = nodes[0].lib
-            dlg = NodeEditDialog(self, lib, nodes)
+        idents = [index.data(ObjectsModel.NodeIdentityRole) for index in self.view.selectionModel().selectedRows()]
+        if idents:
+            lib = idents[0].lib
+            dlg = NodeEditDialog(self, lib, [lib.node(ident) for ident in idents])
             if dlg.exec_() != NodeEditDialog.Accepted:
                 return
-
-            for modified_node in dlg.nodes:
-                modified_node.flush()
 
     def removeSelected(self):
         from organica.lib.filters import TagQuery
