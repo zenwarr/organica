@@ -269,12 +269,12 @@ class NodeEditDialog(QDialog):
         nodes = [index.data(Qt.UserRole) for index in self.__selectedIndexes]
 
         self.txtDisplayName.clear()
-        self.txtDisplayName.setEnabled(bool(nodes))
 
         self.chkCommonDisplayName.setEnabled(bool(nodes))
 
         self.chkCommonDisplayName.setChecked(len(nodes) == 1)
         self.chkCommonDisplayName.setVisible(len(nodes) > 1)
+        self.txtDisplayName.setEnabled(len(nodes) <= 1)
 
         if nodes:
             self.txtDisplayName.setText(nodes[0].displayNameTemplate)
