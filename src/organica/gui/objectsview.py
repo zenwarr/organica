@@ -1,7 +1,7 @@
 import logging
 from PyQt4.QtCore import Qt, QModelIndex
 from PyQt4.QtGui import QWidget, QTreeView, QVBoxLayout, QDesktopServices, QLabel, QListWidget, \
-                        QDialogButtonBox, QDialog
+                        QDialogButtonBox, QDialog, QMenu, QAction, QMessageBox
 from organica.lib.objectsmodel import ObjectsModel
 from organica.gui.selectionmodel import WatchingSelectionModel
 from organica.gui.actions import globalCommandManager
@@ -31,12 +31,18 @@ class ObjectsView(QWidget):
         selection_model.resetted.connect(self.__onSelectionResetted)
         self.view.setSelectionModel(selection_model)
 
+        self.contextMenu = QMenu(self)
+        edit_action = QAction(tr('Edit objects'), self)
+        edit_action.triggered.connect(self.editSelected)
+        self.contextMenu.addAction(edit_action)
+        self.contextMenu.addSeparator()
+        remove_action = QAction(tr('Remove objects'), self)
+        remove_action.triggered.connect(self.removeSelected)
+        self.contextMenu.addAction(remove_action)
+
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.view)
-
-        #todo: create context menu
-        #todo: create actions (here or in other place)
 
     @property
     def lib(self):
@@ -54,11 +60,12 @@ class ObjectsView(QWidget):
         cm.deactivate('Objects.ObjectsActive')
 
     def __showContextMenu(self, position):
-        index = self.view.indexAt(position)
-        if index.isValid():
-            node = index.data(ObjectsModel.NodeIdentityRole)
-            if node is not None:
-                self.contextMenu.popup(self.view.mapToGlobal(position))
+        if hasattr(self, 'contextMenu'):
+            index = self.view.indexAt(position)
+            if index.isValid():
+                node = index.data(ObjectsModel.NodeIdentityRole)
+                if node is not None:
+                    self.contextMenu.popup(self.view.mapToGlobal(position))
 
     def launch(self, item):
         """Launches given QModelIndex or Node in associated system application"""
@@ -87,20 +94,65 @@ class ObjectsView(QWidget):
 
         QDesktopServices.openUrl(url)
 
-    def edit(self):
+    def editSelected(self):
         ###WARN: this code will not work for objects from different libraries!!!
         """Starts edit dialog for all selected nodes and flushes changes"""
         from organica.gui.nodedialog import NodeEditDialog
 
         nodes = [index.data(ObjectsModel.NodeIdentityRole) for index in self.view.selectionModel().selectedRows()]
         if nodes:
-            lib = nodes[0]
+            lib = nodes[0].lib
             dlg = NodeEditDialog(self, lib, nodes)
             if dlg.exec_() != NodeEditDialog.Accepted:
                 return
 
             for modified_node in dlg.nodes:
                 modified_node.flush()
+
+    def removeSelected(self):
+        from organica.lib.filters import TagQuery
+        from organica.lib.objects import TagValue
+
+        nodes_to_remove = [index.data(ObjectsModel.NodeIdentityRole) for index in self.view.selectionModel().selectedRows()]
+        if nodes_to_remove:
+            has_managed_files = False
+            for node in nodes_to_remove:
+                locators = node.tags(TagQuery(valueType=TagValue.TYPE_LOCATOR))
+                has_managed_files = any((loc.isManagedFile for loc in locators))
+                if has_managed_files:
+                    break
+
+            msgbox = QMessageBox(self)
+            msgbox.setWindowTitle(tr('Delete objects'))
+            msgbox.setText(tr('Really delete objects?'))
+            msgbox.setIcon(QMessageBox.Question)
+            if has_managed_files:
+                msgbox.setText(msgbox.text() + tr(' You can also delete files in local storage used by this objects only.'))
+            msgbox.setStandardButton(QMessageBox.Cancel)
+            delete_button = msgbox.addButton(tr('Delete'), QMessageBox.AcceptRole)
+            delete_with_files_button = None
+            if has_managed_files:
+                delete_with_files_button = msgbox.addButton(tr('Delete with files'), QMessageBox.AcceptRole)
+
+            msgbox.setDefaultButton(delete_button)
+
+            msgbox.exec_()
+            clicked_button = msgbox.clickedButton()
+            if clicked_button is msgbox.button(QMessageBox.Cancel):
+                return
+
+            files_to_remove = []
+            if clicked_button is delete_with_files_button:
+                def can_delete(locator):
+                    if locator.isManagedFile and locator.lib and locator.lib.storage is not None:
+                        return len(locator.lib.storage.referredNodes(locator)) == 1
+
+                for node in nodes_to_remove:
+                    locators = node.tags(TagQuery(valueType=TagValue.TYPE_LOCATOR))
+                    files_to_remove += [loc for loc in locators if can_delete(loc)]
+
+
+
 
 
 class LocatorChooseDialog(QDialog):

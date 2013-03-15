@@ -36,7 +36,7 @@ class Builder:
         f, e = os.path.splitext(os.path.basename(path))
         gen_file = os.path.join(os.path.dirname(path), gen_filename_pattern.format(f))
         if self.need_update(path, gen_file):
-            print("{0}'ing {1}".format(op_name, f))
+            print("{0}'ing {1} -> {2}".format(op_name, f, gen_file))
             tool_path = getattr(self, op_name + '_path')
             os.system(tool_command_pattern.format(tool_path, path, gen_file))
 

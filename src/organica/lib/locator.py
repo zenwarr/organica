@@ -11,6 +11,9 @@ class Locator(object):
         self.__url = QUrl(url)
         self.__lib = None
 
+    def lib(self):
+        return self.__lib if self.isManagedFile else None
+
     @property
     def url(self):
         return QUrl(self.__url)

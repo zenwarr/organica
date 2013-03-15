@@ -1,34 +1,111 @@
+# The MIT License
+#
+# Copyright (c) 2013 zenwarr
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+"""This module provides functionality to read and store application settings. All settings are stored
+in JSON format, and syntax parsing implemented with standard JSON module, having all its advantages and
+lacks. For example, it cannot store binary data.
+Before using module functions you should configure it. Configuring is done by initializing four variables:
+    defaultSettingsFilename is filename (without path) for Settings object returned by globalSettings
+    function.
+    defaultQuickSettingsFilename is filename (without path) for Settings object returned by globalQuickSettings
+    function.
+    defaultSettingsDirectory is directory path where settings files are be stored if you do not specify
+    absolute path for paths.
+    warningOutputRoutine is method module code will call when some non-critical errors are found.
+Or you can use defaultConfigure function passing application name to it.
+
+Example:
+
+    import settings
+    import logging
+
+    # ...
+    logger = logging.getLogger(__name__)
+    # ...
+
+    # application initialization
+    settings.defaultConfigure('MyApplication')
+    settings.warningOutputRoutine = logger.warn
+
+    # ...
+
+    # register application settings
+    s = settings.globalSettings()
+    s.register('god_mode', False)
+
+    # ...
+
+    # read
+    is_in_god_mode = s['god_mode']
+
+    # save
+    s['god_mode'] = is_in_god_mode
+
+    # reset one setting to default value
+    del s['god_mode']
+
+    # reset all settings
+    s.reset()
+
+Each Settings object can be in strict mode or not. When object is in strict mode, it allows writing only
+registered settings. Default values can be used only with strict Settings object.
+"""
+
+__author__ = 'zenwarr'
+
+
 import os
-import logging
+import sys
 import json
-
-import organica.utils.constants as constants
-from organica.utils.lockable import Lockable
-
-
-logger = logging.getLogger(__name__)
+import threading
 
 
 class SettingsError(Exception):
     pass
 
 
-DEFAULT_SETTINGS_FILE = 'organica.conf'
-DEFAULT_QUICK_SETTINGS_FILE = 'organica.qconf'
+def defaultConfigure(app_name):
+    global defaultSettingsFilename, defaultQuickSettingsFilename, defaultSettingsDirectory
+
+    defaultSettingsFilename = app_name + '.conf'
+    defaultQuickSettingsFilename = app_name + '.qconf'
+
+    if sys.platform.startswith('win'):
+        defaultSettingsDirectory = os.path.expanduser('~/Application Data/' + app_name)
+    elif sys.platform.startswith('darwin'):
+        defaultSettingsDirectory = os.path.expanduser('~/Library/Application Support/' + app_name)
+    else:
+        defaultSettingsDirectory = os.path.expanduser('~/.' + app_name)
 
 
-class Settings(Lockable):
-    """This class is used to access application settings. Settings are stored in
-    human-readable (and human-editable) format (JSON).
-    Class can optionally allow only limited set of settings to be saved by registering
-    name for each settings. This feature also allows application to set default values for
-    each registered setting. If strict_control argument passed to constructor is False (default), object
-    will not control keys and will not support default values for settings.
-    You can access values with dictionary-like syntax (__getitem__, __setitem__, __delitem__)
-    """
+defaultSettingsFilename = ''
+defaultQuickSettingsFilename = ''
+defaultSettingsDirectory = ''
+warningOutputRoutine = None
 
+
+class Settings(object):
     def __init__(self, filename, strict_control=False):
-        Lockable.__init__(self)
+        self.lock = threading.RLock()
         self.__filename = filename
         self.allSettings = {}
         self.registered = {}
@@ -36,14 +113,15 @@ class Settings(Lockable):
 
     @property
     def filename(self):
-        return self.__filename if os.path.isabs(self.__filename) else os.path.join(constants.data_dir, self.__filename)
+        return self.__filename if os.path.isabs(self.__filename) else os.path.join(defaultSettingsDirectory, self.__filename)
 
     def load(self):
         """Reloads settings from configuration file. If settings filename does not exist or empty, no error raised
         (assuming that all settings has default values). But if file exists but not accessible, SettingsError
         will be raised. Invalid file structure also causes SettingsError to be raised.
-        Stored keys that are not registered will cause logging warning message, but it is not critical error (due
-        to compatibility with future versions and plugins). Unregistered settings are placed in allSettings dictionary.
+        Stored keys that are not registered will cause warning message, but it is not critical error (due
+        to compatibility with future versions and plugins). Unregistered settings are placed in allSettings dictionary
+        as well as registered ones.
         """
 
         with self.lock:
@@ -68,7 +146,8 @@ class Settings(Lockable):
 
                     for key, value in settings.items():
                         if self.__strictControl and key not in self.registered:
-                            logger.warn('unregistered setting in config file {0}: {1}'.format(self.filename, key))
+                            if warningOutputRoutine is not None:
+                                warningOutputRoutine('unregistered setting in config file {0}: {1}'.format(self.filename, key))
                         self.allSettings[key] = value
             except Exception as err:
                 raise SettingsError('failed to load settings: {0}'.format(err))
@@ -202,7 +281,7 @@ def globalSettings():
 
     global _globalSettings
     if _globalSettings is None:
-        _globalSettings = Settings(DEFAULT_SETTINGS_FILE, strict_control=True)
+        _globalSettings = Settings(defaultSettingsFilename, strict_control=True)
     return _globalSettings
 
 
@@ -213,5 +292,5 @@ def globalQuickSettings():
 
     global _globalQuickSettings
     if _globalQuickSettings is None:
-        _globalQuickSettings = Settings(DEFAULT_QUICK_SETTINGS_FILE)
+        _globalQuickSettings = Settings(defaultQuickSettingsFilename)
     return _globalQuickSettings

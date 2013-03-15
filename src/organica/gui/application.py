@@ -8,6 +8,7 @@ import locale
 from PyQt4.QtGui import QApplication
 
 from organica.utils.settings import globalSettings, globalQuickSettings, SettingsError
+import organica.utils.settings as settings
 from organica.gui.actions import globalCommandManager
 import organica.utils.constants as constants
 from organica.gui.mainwin import globalMainWindow
@@ -83,6 +84,11 @@ class Application(QApplication):
             constants.data_dir = os.path.expanduser('~/.organica')
 
         logger.debug('constants.data_dir = {0}'.format(constants.data_dir))
+
+        settings.defaultSettingsDirectory = constants.data_dir
+        settings.defaultSettingsFilename = 'organica.conf'
+        settings.defaultQuickSettingsFilename = 'organica.qconf'
+        settings.warningOutputRoutine = logger.warn
 
         doRegister()
 
