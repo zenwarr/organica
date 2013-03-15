@@ -6,7 +6,7 @@ from PyQt4.QtCore import Qt, QByteArray, QUrl
 from PyQt4.QtGui import QDialog, QListView, QTabWidget, QDialogButtonBox, QStandardItemModel, \
                         QLineEdit, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel, QWidget, QStandardItem, QIcon
 
-from organica.utils.helpers import tr
+from organica.utils.helpers import tr, removeLastSlash
 from organica.utils.extend import globalObjectPool
 from organica.utils.settings import globalQuickSettings
 
@@ -197,7 +197,8 @@ class NodeEditDialog(QDialog):
             else:
                 # take first locator and use it
                 if locators[0].isLocalFile:
-                    item.setText(os.path.basename(locators[0].localFilePath))
+                    full_filename = removeLastSlash(locators[0].localFilePath)
+                    item.setText(os.path.basename(full_filename))
                 else:
                     item.setText(locators[0].url)
                 item.setIcon(locators[0].icon)
