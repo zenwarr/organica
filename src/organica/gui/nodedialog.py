@@ -205,6 +205,7 @@ class NodeEditDialog(QDialog):
 
             node_copy = copy.deepcopy(node)
             item.setData(node_copy, Qt.UserRole)
+            item.setEditable(False)
             self.nodesModel.appendRow(item)
             self.__nodes.append(node_copy)
 
