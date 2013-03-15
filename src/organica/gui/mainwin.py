@@ -111,10 +111,21 @@ class MainWindow(QMainWindow):
             for lib_path in saved_workspace:
                 self.loadLibraryFromFile(lib_path)
 
+        saved_active_lib_index = qs['saved_active_lib_index']
+        if isinstance(saved_active_lib_index, int) and (0 <= saved_active_lib_index < len(saved_workspace)):
+            for environ in self.workspace:
+                # we use QFileInfo instead of os.path.samefile because last one fails when path does not exists
+                if QFileInfo(environ.lib.databaseFilename) == QFileInfo(saved_workspace[saved_active_lib_index]):
+                    self.libTabWidget.setCurrentWidget(environ.ui)
+                    break
+            else:
+                self.libTabWidget.setCurrentIndex(0)
+
     def closeEvent(self, closeEvent):
         # save workspace to be restored on next launch
         qs = globalQuickSettings()
         qs['saved_workspace'] = [env.lib.databaseFilename for env in self.workspace]
+        qs['saved_active_lib_index'] = self.libTabWidget.currentIndex()
 
         while self.workspace:
             self.closeEnviron(self.workspace[0])
