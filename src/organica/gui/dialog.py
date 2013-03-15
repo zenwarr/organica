@@ -15,7 +15,15 @@ class Dialog(QDialog):
             if saved_geom and isinstance(saved_geom, str):
                 self.restoreGeometry(QByteArray.fromHex(saved_geom))
 
-    def closeEvent(self, close_event):
+    def accept(self):
+        self.__save()
+        QDialog.accept(self)
+
+    def reject(self):
+        self.__save()
+        QDialog.reject(self)
+
+    def __save(self):
         if self.name:
             qs = globalQuickSettings()
             qs[self.name + '_geometry'] = str(self.saveGeometry().toHex(), encoding='ascii')
