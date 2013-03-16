@@ -101,8 +101,9 @@ class TopicsView(QWidget):
     @lib.setter
     def lib(self, new_lib):
         """Changing library will reset filter and hierarchy."""
-        model = TagsModel(new_lib)
-        self._treeModel.setSourceModel(model)
+        self.model = TagsModel(new_lib)
+        self.model.hierarchy = ['*']
+        self._treeModel.setSourceModel(self.model)
 
     @property
     def activeMode(self):
@@ -146,7 +147,7 @@ class TopicsView(QWidget):
 
     @property
     def selectedTag(self):
-        return self._treeModel.index(self.currentIndex()).data(TagsModel.TagIdentityRole)
+        return self.tree.currentIndex().data(TagsModel.TagIdentityRole)
 
     @selectedTag.setter
     def selectedTag(self, new_tag):
@@ -197,7 +198,6 @@ class TopicsView(QWidget):
 
     def __onCurrentTagChanged(self, new_index):
         tag = new_index.data(TagsModel.TagIdentityRole)
-        self.tagActiveState.active = tag is not None
         self.selectedTagChanged.emit(tag)
 
     def __onCurrentTagReset(self):

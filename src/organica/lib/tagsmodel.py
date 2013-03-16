@@ -91,6 +91,8 @@ class TagsModel(QAbstractItemModel, Lockable):
         if isinstance(leaf, int):
             leaf = self.__leaves[leaf]
 
+        self.beginResetModel()
+
         # clear list of children and remove them from
         if leaf.children:
             self.__leaves = [x for x in self.__leaves if x not in leaf.children]
@@ -105,10 +107,14 @@ class TagsModel(QAbstractItemModel, Lockable):
 
         # do not fetch anything for leaves on last level
         if leaf.level >= len(self.__hierarchy):
+            self.endResetModel()
             return
 
         # build filter for children of this leaf
-        children_filter = TagQuery(tag_class=self.__hierarchy[leaf.level])
+        if self.__hierarchy[leaf.level] == '*':
+            children_filter = TagQuery()
+        else:
+            children_filter = TagQuery(tag_class=self.__hierarchy[leaf.level])
         if leaf.level > 0:
             children_filter = children_filter & TagQuery(friend_of=leaf.tag)
         if not self.__showHidden:
@@ -131,6 +137,8 @@ class TagsModel(QAbstractItemModel, Lockable):
             leaf.tagset.elementDisappeared.connect(self.__onElementDisappeared)
             leaf.tagset.elementUpdated.connect(self.__onElementUpdated)
             leaf.tagset.resetted.connect(self.__onTagsetResetted)
+
+        self.endResetModel()
 
     def __doInsertLeaf(self, parent_leaf, tag_identity):
         child_leaf = _Leaf()
@@ -200,7 +208,6 @@ class TagsModel(QAbstractItemModel, Lockable):
     def __onTagsetResetted(self):
         with self.lock:
             self.__reset()
-        self.reset()
 
     def __indexForLeaf(self, leaf, column=0):
         if isinstance(leaf, int):
