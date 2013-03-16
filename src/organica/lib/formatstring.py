@@ -246,6 +246,7 @@ class _FormatStringParser:
                     tail = head = char_index + 1
                 else:
                     logger.debug('unknown escape sequence \\{0}, skipping'.format(char))
+                escaping = False
             elif char == '\\':
                 escaping = True
             else:
