@@ -8,7 +8,10 @@ class Locator(object):
     MANAGED_FILES_SCHEME = 'storage'
 
     def __init__(self, url=''):
-        self.__url = QUrl(url)
+        if isinstance(url, str) and url and (QUrl(url).scheme() in ('file', '')):
+            self.__url = QUrl.fromLocalFile(url)
+        else:
+            self.__url = QUrl(url)
         self.__lib = None
 
     def lib(self):

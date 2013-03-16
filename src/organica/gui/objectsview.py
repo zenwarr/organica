@@ -6,6 +6,7 @@ from organica.lib.objectsmodel import ObjectsModel
 from organica.gui.selectionmodel import WatchingSelectionModel
 from organica.gui.actions import globalCommandManager
 from organica.utils.helpers import tr
+from organica.gui.dialog import Dialog
 
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ class ObjectsView(QWidget):
         else:
             url = locators[0].launchUrl
 
+        print(url.scheme())
         QDesktopServices.openUrl(url)
 
     def editSelected(self):
@@ -112,10 +114,11 @@ class ObjectsView(QWidget):
 
         nodes_to_remove = [index.data(ObjectsModel.NodeIdentityRole) for index in self.view.selectionModel().selectedRows()]
         if nodes_to_remove:
+            nodes_to_remove = [node.lib.node(node) for node in nodes_to_remove]
             has_managed_files = False
             for node in nodes_to_remove:
-                locators = node.tags(TagQuery(valueType=TagValue.TYPE_LOCATOR))
-                has_managed_files = any((loc.isManagedFile for loc in locators))
+                locator_tags = node.tags(TagQuery(value_type=TagValue.TYPE_LOCATOR))
+                has_managed_files = any((tag.value.locator.isManagedFile for tag in locator_tags))
                 if has_managed_files:
                     break
 
@@ -125,7 +128,7 @@ class ObjectsView(QWidget):
             msgbox.setIcon(QMessageBox.Question)
             if has_managed_files:
                 msgbox.setText(msgbox.text() + tr(' You can also delete files in local storage used by this objects only.'))
-            msgbox.setStandardButton(QMessageBox.Cancel)
+            msgbox.setStandardButtons(QMessageBox.Cancel)
             delete_button = msgbox.addButton(tr('Delete'), QMessageBox.AcceptRole)
             delete_with_files_button = None
             if has_managed_files:
@@ -144,22 +147,24 @@ class ObjectsView(QWidget):
                     if locator.isManagedFile and locator.lib and locator.lib.storage is not None:
                         return len(locator.lib.storage.referredNodes(locator)) == 1
 
+                locators = list()
                 for node in nodes_to_remove:
-                    locators = node.tags(TagQuery(valueType=TagValue.TYPE_LOCATOR))
+                    locators += node.tags(TagQuery(valueType=TagValue.TYPE_LOCATOR))
                     files_to_remove += [loc for loc in locators if can_delete(loc)]
 
+                print(files_to_remove)
 
 
-
-
-class LocatorChooseDialog(QDialog):
+class LocatorChooseDialog(Dialog):
     def __init__(self, parent, locators):
-        QDialog.__init__(self, parent)
+        Dialog.__init__(self, parent, name='locator_choose_dialog')
         self.locators = locators
+
+        self.setWindowTitle(tr('Select locator to use'))
 
         self.label = QLabel(self)
         self.label.setWordWrap(True)
-        self.label.setText(tr('This node has several locators linked. Choose one you want to use'))
+        self.label.setText(tr('This node has several locators linked. Choose one you want to use:'))
 
         self.list = QListWidget(self)
         for locator in self.locators:
