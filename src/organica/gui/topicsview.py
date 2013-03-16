@@ -58,7 +58,6 @@ class TopicsView(QWidget):
 
         self._treeModel = _TopicsModel()
         self.tree.setModel(self._treeModel)
-        self.tree.hideColumn(0)
         self.tree.header().hide()
 
         selectionModel = WatchingSelectionModel(self._treeModel)
@@ -104,6 +103,7 @@ class TopicsView(QWidget):
         self.model = TagsModel(new_lib)
         self.model.hierarchy = ['*']
         self._treeModel.setSourceModel(self.model)
+        self.tree.hideColumn(0)
 
     @property
     def activeMode(self):
