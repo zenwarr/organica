@@ -11,10 +11,12 @@ class TestFilters(unittest.TestCase):
 
         author_class = lib.createTagClass('author')
         page_count_class = lib.createTagClass('page_count')
+        locator_class = lib.tagClass('locator')
 
         author_carrol = Tag(author_class, 'Lewis Carrol')
         author_shakespeare = Tag(author_class, 'Shakespeare')
         page_count = Tag(page_count_class, 489)
+        locator_tag = Tag(locator_class, '/home/shakespeare')
 
         f = TagQuery(tag_class='author')
         self.assertTrue(author_carrol.passes(f))
@@ -181,6 +183,13 @@ class TestFilters(unittest.TestCase):
         obj.unlink(author_carrol)
         obj.flush()
         self.assertFalse(author_carrol.passes(f))
+
+        f = TagQuery(value_to_text=Wildcard('*sh*'))
+        self.assertTrue(author_shakespeare.passes(f))
+        self.assertFalse(author_carrol.passes(f))
+        self.assertFalse(page_count.passes(f))
+        self.assertTrue(locator_tag.passes(f))
+        self.assertEqual(f.generateSqlWhere(), "match_tagvalue(value, '*sh*')")
 
         f = TagQuery(linked_with=obj1, tag_class='author')
         self.assertFalse(author_carrol.id == author_shakespeare.id)

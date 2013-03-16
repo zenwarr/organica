@@ -48,6 +48,9 @@ class Wildcard(object):
     def __ne__(self, text):
         return not self.__eq__(text)
 
+    def __str__(self):
+        return self.pattern
+
 
 def _sqlEqualForm(text):
     """Doubles each single quote. Use it to sanitize strings which will be passed
@@ -641,6 +644,23 @@ class _Tag_FriendOf(object):
         return 0 if self.tag is None or not self.tag.isFlushed else -1
 
 
+class _Tag_ValueToText(object):
+    def __init__(self, text):
+        self.text = text
+
+    def passes(self, tag):
+        if tag is None or self.qeval() == 0:
+            return False
+
+        return self.text == str(tag.value)
+
+    def generateSql(self):
+        return "match_tagvalue(value, '{0}')".format(str(self.text))
+
+    def qeval(self):
+        return -1
+
+
 class TagQuery(_Query):
     def __init__(self, **kwargs):
         _Query.__init__(self, self.__getFilter(**kwargs))
@@ -683,7 +703,8 @@ class TagQuery(_Query):
         'value_type': _Tag_ValueType,
         'linked_with': _Tag_LinkedWith,
         'hidden': _Tag_Hidden,
-        'friend_of': _Tag_FriendOf
+        'friend_of': _Tag_FriendOf,
+        'value_to_text': _Tag_ValueToText,
     }
 
     def __getFilter(self, **kwargs):

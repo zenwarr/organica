@@ -160,7 +160,7 @@ class TopicsView(QWidget):
     def __onSearchTextChanged(self, new_search_text):
         tags_model = self._treeModel.sourceModel()
         if tags_model is not None:
-            tags_model.filter = TagQuery(value=Wildcard('*{0}*'.format(new_search_text)))
+            tags_model.filter = TagQuery(value_to_text=Wildcard('*{0}*'.format(new_search_text)))
 
     def __addMode(self, mode_object):
         mode_button = QToolButton()

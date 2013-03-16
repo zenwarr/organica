@@ -877,9 +877,13 @@ class Library(QObject, Lockable):
             else:
                 return -1
 
+        def match_tagvalue(value, pattern):
+            return Wildcard(pattern) == str(TagValue(value))
+
         self._filename = filename
         self._conn = sqlite3.connect(filename, isolation_level=None)
         self._conn.create_collation('strict_nocase', strict_nocase_collation)
+        self._conn.create_function('match_tagvalue', 2, match_tagvalue)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute('pragma foreign_keys = on')
 
