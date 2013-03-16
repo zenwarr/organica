@@ -162,7 +162,7 @@ class ObjectsModel(QAbstractItemModel, Lockable):
         with self.lock:
             self.beginResetModel()
             self.__cached_nodes = []
-            # fetch new items
+            self.__fetch()
             self.endResetModel()
 
     def __fetch(self):

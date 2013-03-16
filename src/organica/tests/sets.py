@@ -59,6 +59,8 @@ class TestNodeSet(unittest.TestCase):
         alice_node.link(lib.createTagClass('pages_count'), 219)
         alice_node.flush()
 
+        another_node = lib.createNode('Just a node')
+
         self.assertEqual(len(node_set), 1)
         self.assertTrue(alice_node.identity in node_set)
 
@@ -107,5 +109,8 @@ class TestNodeSet(unittest.TestCase):
 
         alice_node.remove()
         self.assertEqual(len(node_set), 0)
+
+        node_set.query = NodeQuery()
+        self.assertEqual(len(node_set), 1)
 
         lib.disconnectDatabase()

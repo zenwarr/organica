@@ -99,6 +99,7 @@ class _Set(QObject, Lockable):
 
     def __iter__(self):
         with self.lock:
+            self.ensureFetched()
             for result in self.results:
                 yield result
 

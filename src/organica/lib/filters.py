@@ -829,3 +829,12 @@ class NodeQuery(_Query):
         return f
 
 NodeFilter = NodeQuery
+
+
+_lastGeneratedHint = 1000
+
+
+def generateFilterHint():
+    global _lastGeneratedHint
+    _lastGeneratedHint += 1
+    return _lastGeneratedHint

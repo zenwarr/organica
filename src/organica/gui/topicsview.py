@@ -1,4 +1,4 @@
-from PyQt4.QtCore import pyqtSignal, Qt
+from PyQt4.QtCore import pyqtSignal, Qt, QModelIndex
 from PyQt4.QtGui import QToolButton, QSortFilterProxyModel, QWidget, QLineEdit, QTreeView, QIcon, QButtonGroup, \
                         QVBoxLayout, QHBoxLayout, QMenu
 
@@ -197,8 +197,8 @@ class TopicsView(QWidget):
         pass
 
     def __onCurrentTagChanged(self, new_index):
-        tag = new_index.data(TagsModel.TagIdentityRole)
+        tag = new_index.data(TagsModel.TagIdentityRole) if new_index.isValid() else None
         self.selectedTagChanged.emit(tag)
 
     def __onCurrentTagReset(self):
-        self.selectedTagChanged.emit(None)
+        self.__onCurrentTagChanged(QModelIndex())
