@@ -103,7 +103,6 @@ def _sqlLikeForm(text):
 def generateSqlCompare(row_name, template):
     """Generate sql equal or LIKE comparision depending on type of template.
     If template is None, generated comparision will be TRUE only on empty strings or NULLs.
-    Code assumes that row_name is safe and does not contains dangerous characters.
     """
 
     if not template:
@@ -114,58 +113,75 @@ def generateSqlCompare(row_name, template):
         return "{0} = '{1}'".format(row_name, _sqlEqualForm(template))
 
 
-class _Filter_Disabled(object):
+def _equiv(expression):
+    """Returns new equivalent filter expression for given one. If given expression is None, returns
+     disabled filter. Returned filter is always new object.
+    """
+
+    if expression is None or expression.qeval() == 1:
+        return _Filter_Disabled()
+    elif expression.qeval() == 0:
+        return _Filter_Block()
+    elif hasattr(expression, '_equiv'):
+        return expression._equiv()
+    return copy.deepcopy(expression)
+
+
+class AbstractFilter(object):
+    def __init__(self):
+        pass
+
+    def qeval(self):
+        """Should return 1 if filter passes all tags, 0 if passes no tags, -1 in other cases.
+        """
+        return -1
+
+    def generateSql(self):
+        if self.qeval() == 0:
+            return '1 = 2'
+        elif self.qeval() == 1:
+            return '1 = 1'
+        else:
+            return self._generateSql()
+
+
+class _Filter_Disabled(AbstractFilter):
     """Disabled filter passes all tags.
     """
 
     def passes(self, tag):
         return tag is not None
 
-    def generateSql(self):
-        return '1 = 1'
-
     def qeval(self):
         return 1
 
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'disabled'
 
-class _Filter_Block(object):
+
+class _Filter_Block(AbstractFilter):
     """Blocked filter passes no tags
     """
 
     def passes(self, obj):
         return False
 
-    def generateSql(self):
-        return '1 = 2'
-
     def qeval(self):
         return 0
 
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'blocked'
 
-class _Twin_Filter(object):
+
+class _Twin_Filter(AbstractFilter):
     def __init__(self, left, right):
-        self.left = left or _Filter_Disabled()
-        self.right = right or _Filter_Disabled()
-
-    def disableHinted(self, hint):
-        if hasattr(self, 'hint') and self.hint == hint:
-            self.left = _Filter_Disabled()
-            self.right = _Filter_Disabled()
-        else:
-            if hasattr(self.left, 'hint') and self.left.hint == hint:
-                self.left = _Filter_Disabled()
-            elif hasattr(self.left, 'disableHinted'):
-                self.left.disableHinted(hint)
-
-            if hasattr(self.right, 'hint') and self.right.hint == hint:
-                self.right = _Filter_Disabled()
-            elif hasattr(self.right, 'disableHinted'):
-                self.right.disableHinted(hint)
+        AbstractFilter.__init__(self)
+        self.left = _equiv(left)
+        self.right = _equiv(right)
 
 
 class _Filter_And(_Twin_Filter):
-    """This filter is TRUE only when :left: and :right: filters are TRUE. If one
-    of these filters is evaluated to False, it considered to be disabled (always TRUE).
+    """This filter is TRUE only when :left: and :right: filters are TRUE.
     """
 
     def passes(self, obj):
@@ -174,19 +190,13 @@ class _Filter_And(_Twin_Filter):
 
         return self.left.passes(obj) and self.right.passes(obj)
 
-    def generateSql(self):
-        if self.qeval() == -1:
-            if self.left.qeval() == -1 and self.right.qeval() == -1:
-                return '({0}) and ({1})'.format(self.left.generateSql(),
-                                              self.right.generateSql())
-            elif self.left.qeval() == -1:
-                return self.left.generateSql()
-            else:
-                return self.right.generateSql()
-        elif self.qeval() == 1:
-            return _Filter_Disabled().generateSql()
+    def _generateSql(self):
+        if self.left.qeval() == -1 and self.right.qeval() == -1:
+            return '({0}) and ({1})'.format(self.left.generateSql(), self.right.generateSql())
+        elif self.left.qeval() == -1:
+            return self.left.generateSql()
         else:
-            return _Filter_Block().generateSql()
+            return self.right.generateSql()
 
     def qeval(self):
         left = self.left.qeval() if self.left else 1
@@ -198,6 +208,17 @@ class _Filter_And(_Twin_Filter):
             return 1
         else:
             return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'AND\n' + self.left.debugRepr(indent + 1) + '\n' + self.right.debugRepr(indent + 1)
+
+    def _equiv(self):
+        if self.qeval() == -1:
+            if self.left.qeval() == 1:
+                return copy.deepcopy(self.right)
+            elif self.right.qeval() == 1:
+                return copy.deepcopy(self.left)
+        return copy.deepcopy(self)
 
 
 class _Filter_Or(_Twin_Filter):
@@ -211,19 +232,13 @@ class _Filter_Or(_Twin_Filter):
 
         return self.left.passes(obj) or self.right.passes(obj)
 
-    def generateSql(self):
-        if self.qeval() == -1:
-            if self.left.qeval() == -1 and self.right.qeval() == -1:
-                return '({0}) or ({1})'.format(self.left.generateSql(),
-                                               self.right.generateSql())
-            elif self.left.qeval() == 0:
-                return self.right.qeval()
-            else:
-                return self.left.qeval()
-        elif self.qeval() == 1:
-            return _Filter_Disabled().generateSql()
+    def _generateSql(self):
+        if self.left.qeval() == -1 and self.right.qeval() == -1:
+            return '({0}) or ({1})'.format(self.left.generateSql(), self.right.generateSql())
+        elif self.left.qeval() == 0:
+            return self.right.qeval()
         else:
-            return _Filter_Block().generateSql()
+            return self.left.qeval()
 
     def qeval(self):
         left = self.left.qeval() if self.left else 1
@@ -236,13 +251,25 @@ class _Filter_Or(_Twin_Filter):
         else:
             return -1
 
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'OR\n' + self.left.debugRepr(indent + 1) + '\n' + self.right.debugRepr(indent + 1)
 
-class _Filter_Not(object):
+    def _equiv(self):
+        if self.qeval() == -1:
+            if self.left.qeval() == 0:
+                return copy.deepcopy(self.right)
+            elif self.right.qeval() == 0:
+                return copy.deepcopy(self.left)
+        return copy.deepcopy(self)
+
+
+class _Filter_Not(AbstractFilter):
     """Inverts value of another filter.
     """
 
     def __init__(self, expr):
-        self.__expr = expr or _Filter_Disabled()
+        AbstractFilter.__init__(self)
+        self.__expr = _equiv(expr)
 
     def passes(self, obj):
         if obj is None:
@@ -250,13 +277,8 @@ class _Filter_Not(object):
 
         return not self.__expr.passes(obj)
 
-    def generateSql(self):
-        if self.qeval() == -1:
-            return 'not ({0})'.format(self.__expr.generateSql())
-        elif self.qeval() == 1:
-            return _Filter_Disabled().generateSql()
-        else:
-            return _Filter_Block().generateSql()
+    def _generateSql(self):
+        return 'not ({0})'.format(self.__expr.generateSql())
 
     def qeval(self):
         expr_q = self.__expr.qeval()
@@ -267,37 +289,386 @@ class _Filter_Not(object):
         else:
             return -1
 
-    @property
-    def hint(self):
-        return self.__expr.hint if hasattr(self.__expr, 'hint') else None
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'NOT\n' + self.__expr.debugRepr(indent + 1)
 
-    @hint.setter
-    def hint(self, new_hint):
-        self.__expr.hint = new_hint
 
-    def disableHinted(self, hint):
-        if self.hint == hint:
-            self.__filter = _Filter_Disabled()
-        elif hasattr(self.__expr, 'disableHinted'):
-            self.__filter.disableHinted()
+class _Tag_Class(AbstractFilter):
+    def __init__(self, tag_class):
+        AbstractFilter.__init__(self)
+        self.tagClass = tag_class
+
+    def passes(self, tag):
+        if tag is None:
+            return False
+
+        if isinstance(self.tagClass, (Identity, TagClass)):
+            return tag.tagClass == self.tagClass
+        elif isinstance(self.tagClass, Wildcard):
+            return self.tagClass == tag.className
+        else:
+            return helpers.cicompare(tag.className, self.tagClass)
+
+    def _generateSql(self):
+        if isinstance(self.tagClass, (Identity, TagClass)):
+            if self.tagClass.isFlushed:
+                return "class_id = {0}".format(self.tagClass.id)
+            else:
+                return _Filter_Block().generateSql()
+        else:
+            return "class_id in (select id from tag_classes where {0})" .format(generateSqlCompare('name', self.tagClass))
+
+    def qeval(self):
+        return 0 if isinstance(self.tagClass, (Identity, TagClass)) and not self.tagClass.isFlushed else -1
+
+    def debugRepr(self, indent):
+        class_repr = '#{0}'.format(self.tagClass.id) if isinstance(self.tagClass, (Identity, TagClass)) else str(self.tagClass)
+        return (' ' * indent) + 'tag_class = {0}'.format(class_repr)
+
+
+class _Tag_Identity(AbstractFilter):
+    def __init__(self, identity):
+        AbstractFilter.__init__(self)
+        self.identity = get_identity(identity)
+
+    def passes(self, tag):
+        return tag is not None and self.identity == get_identity(tag)
+
+    def _generateSql(self):
+        return "id = {0}".format(self.identity.id)
+
+    def qeval(self):
+        return 0 if not self.identity.isFlushed else -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'identity = ' + str(self.identity.id)
+
+
+class _Tag_Text(AbstractFilter):
+    def __init__(self, text):
+        AbstractFilter.__init__(self)
+        self.text = text
+
+    def passes(self, tag):
+        if tag is None or tag.value.valueType != TagValue.TYPE_TEXT:
+            return False
+
+        if isinstance(self.text, Wildcard):
+            return self.text == tag.value.text
+        else:
+            return helpers.cicompare(self.text, tag.value.text)
+
+    def _generateSql(self):
+        return 'value_type = {0} and {1} collate strict_nocase' .format(TagValue.TYPE_TEXT, generateSqlCompare('value', self.text))
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'text = ' + str(self.text)
+
+
+class _Tag_Number(AbstractFilter):
+    op_map = {
+                'lt': '<',
+                'le': '<=',
+                'eq': '=',
+                'ne': '!=',
+                'ge': '>=',
+                'gt': '>'
+            }
+
+    def __init__(self, number, op='eq'):
+        AbstractFilter.__init__(self)
+        self.number = number
+        if op not in self.op_map:
+            raise TypeError('TagFilter.number: unknown operation {0}'.format(op))
+        self.op = op
+
+    def passes(self, tag):
+        op_func = getattr(operator, self.op)
+        return tag is not None and tag.value.valueType == TagValue.TYPE_NUMBER and \
+                op_func(tag.value.number, self.number)
+
+    def _generateSql(self):
+        return "value_type = {0} and value {1} {2}".format(TagValue.TYPE_NUMBER, _Tag_Number.op_map[self.op], self.number)
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'number {0} {1}'.format(self.op, self.number)
+
+
+class _Tag_Locator(AbstractFilter):
+    def __init__(self, locator):
+        AbstractFilter.__init__(self)
+        self.locator = locator
+
+    def passes(self, tag):
+        return tag is not None and tag.value.locator == self.locator
+
+    def _generateSql(self):
+        return "value_type = {0} and value = '{1}'".format(TagValue.TYPE_LOCATOR, self.locator.databaseForm)
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'locator = ' + str(self.locator)
+
+
+class _Tag_Object(AbstractFilter):
+    def __init__(self, nodeReference):
+        AbstractFilter.__init__(self)
+        self.nodeReference = nodeReference
+
+    def passes(self, tag):
+        return tag is not None and tag.value.nodeReference == self.nodeReference
+
+    def _generateSql(self):
+        return 'value_type = {0} and value = {1}'.format(TagValue.TYPE_NODE_REFERENCE, self.nodeReference.id)
+
+    def qeval(self):
+        return 0 if not self.nodeReference.isFlushed else -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'node_ref = ' + str(self.nodeReference.id)
+
+
+class _Tag_ValueType(AbstractFilter):
+    def __init__(self, valueType):
+        AbstractFilter.__init__(self)
+        self.valueType = valueType
+
+    def passes(self, tag):
+        return tag is not None and tag.value.valueType == self.valueType
+
+    def _generateSql(self):
+        return "value_type = {0}".format(self.valueType)
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'value_type = ' + TagValue.typeString(self.valueType)
+
+
+class _Tag_NoneValue(_Tag_ValueType):
+    def __init__(self):
+        _Tag_ValueType.__init__(self, TagValue.TYPE_NONE)
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'value is none'
+
+
+class _Tag_Value(AbstractFilter):
+    def __init__(self, value):
+        AbstractFilter.__init__(self)
+        self.value = TagValue(value)
+
+    def passes(self, tag):
+        return tag and tag.value == self.value
+
+    def _generateSql(self):
+        if self.value.valueType == TagValue.TYPE_TEXT:
+            return _Tag_Text(self.value.text).generateSql()
+        elif self.value.valueType == TagValue.TYPE_NUMBER:
+            return _Tag_Number(self.value.number).generateSql()
+        elif self.value.valueType == TagValue.TYPE_LOCATOR:
+            return _Tag_Locator(self.value.locator).generateSql()
+        elif self.value.valueType == TagValue.TYPE_NODE_REFERENCE:
+            return _Tag_Object(self.value.nodeReference).generateSql()
+        elif self.value.valueType == TagValue.TYPE_NONE:
+            return _Tag_NoneValue().generateSql()
+        else:
+            raise TypeError()
+
+    def qeval(self):
+        return 0 if not TagValue.isValueTypeCorrect(self.value.valueType) else -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'value = ' + str(self.value)
+
+
+class _Tag_Unused(AbstractFilter):
+    def passes(self, tag):
+        if tag is None or not tag.isFlushed:
+            return False
+
+        return not tag.lib.nodes(NodeQuery(tags=tag).limit(1))
+
+    def _generateSql(self):
+        return 'id not in (select distinct tag_id from links)'
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'unused'
+
+
+class _Tag_LinkedWith(AbstractFilter):
+    def __init__(self, obj):
+        AbstractFilter.__init__(self)
+        self.node = obj
+
+    def passes(self, tag):
+        obj = self.node.lib.node(self.node)
+        return obj is not None and obj.testTag(tag)
+
+    def _generateSql(self):
+        return 'id in (select tag_id from links where node_id = {0})'.format(self.node.id)
+
+    def qeval(self):
+        return 0 if not self.node.isFlushed else -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'linked with node #' + str(self.node.id)
+
+
+class _Tag_Hidden(AbstractFilter):
+    def __init__(self, is_hidden):
+        AbstractFilter.__init__(self)
+        self.is_hidden = is_hidden
+
+    def passes(self, tag):
+        return tag is not None and bool(tag.tagClass.hidden) == bool(self.is_hidden)
+
+    def _generateSql(self):
+        return 'class_id in (select id from tag_classes where hidden = {0})'.format(int(self.is_hidden))
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'hidden'
+
+
+class _Tag_FriendOf(AbstractFilter):
+    def __init__(self, tag):
+        AbstractFilter.__init__(self)
+        self.tag = tag
+
+    def passes(self, tag):
+        if tag is None or not tag.isFlushed or self.qeval() == 0:
+            return False
+
+        return tag.lib == self.tag.lib and tag.isFriendOf(self.tag)
+
+    def _generateSql(self):
+        return 'id in (select tag_id from links where node_id in (select node_id from links where tag_id = {0}))' \
+               .format(self.tag.id)
+
+    def qeval(self):
+        return 0 if self.tag is None or not self.tag.isFlushed else -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'friend of ' + str(self.tag.id)
+
+
+class _Tag_ValueToText(AbstractFilter):
+    def __init__(self, text):
+        AbstractFilter.__init__(self)
+        self.text = text
+
+    def passes(self, tag):
+        if tag is None or self.qeval() == 0:
+            return False
+
+        return self.text == str(tag.value)
+
+    def _generateSql(self):
+        return "match_tagvalue(value, '{0}')".format(str(self.text))
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'value text = ' + str(self.text)
+
+
+class _Node_DisplayName(AbstractFilter):
+    def __init__(self, display_name):
+        AbstractFilter.__init__(self)
+        self.displayName = display_name
+
+    def passes(self, obj):
+        return obj is not None and self.displayName == obj.displayNameTemplate
+
+    def _generateSql(self):
+        return generateSqlCompare('display_name', self.displayName)
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'display name = ' + str(self.displayName)
+
+
+class _Node_Identity(AbstractFilter):
+    def __init__(self, obj):
+        AbstractFilter.__init__(self)
+        self.identity = get_identity(obj)
+
+    def passes(self, obj):
+        return obj is not None and self.identity == get_identity(obj)
+
+    def _generateSql(self):
+        return "id = {0}".format(self.identity.id)
+
+    def qeval(self):
+        return 0 if not self.identity.isFlushed else -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + str(self.identity.id)
+
+
+class _Node_Tags(AbstractFilter):
+    def __init__(self, f):
+        AbstractFilter.__init__(self)
+        if isinstance(f, (Tag, Identity)):
+            self.tagFilter = TagQuery(identity=f)
+        else:
+            self.tagFilter = f
+
+    def passes(self, obj):
+        return obj is not None and obj.testTag(self.tagFilter)
+
+    def _generateSql(self):
+        return ('id in (select node_id from links where tag_id in '
+                + '(select id from tags where {0}))').format(self.tagFilter.generateSqlWhere())
+
+    def qeval(self):
+        return self.tagFilter.qeval()
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'has tags\n' + self.tagFilter.debugRepr(indent + 1)
+
+
+class _Node_WithoutTags(AbstractFilter):
+    def passes(self, obj):
+        return obj is not None and not obj.allTags
+
+    def _generateSql(self):
+        return 'id not in (select distinct node_id from links)'
+
+    def qeval(self):
+        return -1
+
+    def debugRepr(self, indent):
+        return (' ' * indent) + 'without tags'
 
 
 class _Query(object):
     """Base class for TagQuery and NodeQuery classes.
     """
 
-    def __init__(self, m_filter):
-        super().__init__()
-        self.__filter = m_filter or _Filter_Disabled()
-        self.__limit = self.__offset = 0
-
-    def filter(self, filter_object):
-        """AND's current query with another one, returning new _Query
-        """
-
-        q = copy.deepcopy(self)
-        q.__filter = _Filter_And(self.__filter, filter_object)
-        return q
+    def __init__(self, filter):
+        self.__filter = _equiv(filter)
+        self.__limit = -1
+        self.__offset = 0
+        self.hint = None
 
     def limit(self, limit_count):
         """Limits result count to :limit_count:
@@ -316,349 +687,47 @@ class _Query(object):
         return q
 
     def __and__(self, other):
-        """AND's filters of two queries
+        """AND's filters of two queries. Other parameters (limit, offset) are get from
+        first query filter.
         """
 
-        # True and True = True
-        if not self.__filter and not other.__filter:
-            return copy.deepcopy(self)
-        else:
-            q = copy.deepcopy(self)
-            q.__filter = _Filter_And(self.__filter, other.__filter)
-            return q
+        q = copy.deepcopy(self)
+        q.__filter = _Filter_And(self.__filter, other.__filter)
+        return q
 
     def __or__(self, other):
-        """OR's filters of two queries
+        """OR's filters of two queries. Other parameters (limit, offset) are get from
+        first query filter.
         """
 
-        # True or x = True
-        if not self.__filter or not other.__filter:
-            q = copy.deepcopy(self)
-            q.__filter = _Filter_Disabled()
-            return q
-        else:
-            q = copy.deepcopy(self)
-            q.__filter = _Filter_Or(self.__filter, other.__filter)
-            return q
+        q = copy.deepcopy(self)
+        q.__filter = _Filter_Or(self.__filter, other.__filter)
+        return q
 
     def __invert__(self):
         """Invert filter or this query.
         """
 
-        # not True = False
-        if not self.__filter:
-            q = copy.deepcopy(self)
-            q.__filter = _Filter_Block()
-            return q
-        else:
-            q = copy.deepcopy(self)
-            q.__filter = _Filter_Not(self.__filter)
-            return q
-
-    def blocked(self):
         q = copy.deepcopy(self)
-        q.__filter = _Filter_Block()
-        return q
-
-    def disabled(self):
-        q = copy.deepcopy(self)
-        q.__filter = _Filter_Disabled()
+        q.__filter = _Filter_Not(self.__filter)
         return q
 
     def passes(self, lib_object):
         return self.__filter.passes(lib_object)
 
     def generateSqlWhere(self):
-        if not self.__filter:
-            q = _Filter_Disabled().generateSql()
-        else:
-            q = self.__filter.generateSql()
-        if self.__limit:
+        q = self.__filter.generateSql()
+        if self.__limit >= 0:
             q = q + ' limit ' + str(self.__limit)
         if self.__offset:
             q = q + ' offset ' + str(self.__offset)
         return q
 
-    def disableHinted(self, hint):
-        if hasattr(self.__filter, 'disableHinted'):
-            self.__filter.disableHinted(hint)
-        elif hasattr(self.__filter, 'hint') and self.__filter.hint == hint:
-            self.__filter = _Filter_Disabled()
-
-    @property
-    def hint(self):
-        return self.__filter.hint if hasattr(self.__filter, 'hint') else None
-
-    @hint.setter
-    def hint(self, new_hint):
-        if self.hint != new_hint:
-            self.__filter.hint = new_hint
-
     def qeval(self):
         return self.__filter.qeval()
 
-
-####################################################################################
-
-
-class _Tag_Class(object):
-    def __init__(self, tag_class):
-        self.tagClass = tag_class
-
-    def passes(self, tag):
-        if tag is None:
-            return False
-
-        if isinstance(self.tagClass, (Identity, TagClass)):
-            return tag.tagClass == self.tagClass
-        elif isinstance(self.tagClass, Wildcard):
-            return self.tagClass == tag.className
-        else:
-            return helpers.cicompare(tag.className, self.tagClass)
-
-    def generateSql(self):
-        if isinstance(self.tagClass, (Identity, TagClass)):
-            if self.tagClass.isFlushed:
-                return "class_id = {0}".format(self.tagClass.id)
-            else:
-                return _Filter_Block().generateSql()
-        else:
-            return "class_id in (select id from tag_classes where {0})" \
-                    .format(generateSqlCompare('name', self.tagClass))
-
-    def qeval(self):
-        return 0 if isinstance(self.tagClass, (Identity, TagClass)) and \
-                not self.tagClass.isFlushed else -1
-
-
-class _Tag_Identity(object):
-    def __init__(self, identity):
-        self.identity = get_identity(identity)
-
-    def passes(self, tag):
-        return tag is not None and self.identity == get_identity(tag)
-
-    def generateSql(self):
-        if self.identity.isFlushed:
-            return "id = {0}".format(self.identity.id)
-        else:
-            return _Filter_Block().generateSql()
-
-    def qeval(self):
-        return 0 if not self.identity.isFlushed else -1
-
-
-class _Tag_Text(object):
-    def __init__(self, text):
-        self.text = text
-
-    def passes(self, tag):
-        if tag is None or tag.value.valueType != TagValue.TYPE_TEXT:
-            return False
-
-        if isinstance(self.text, Wildcard):
-            return self.text == tag.value.text
-        else:
-            return helpers.cicompare(self.text, tag.value.text)
-
-    def generateSql(self):
-        return 'value_type = {0} and {1} collate strict_nocase' \
-                    .format(TagValue.TYPE_TEXT, generateSqlCompare('value', self.text))
-
-    def qeval(self):
-        return -1
-
-
-class _Tag_Number(object):
-    op_map = {
-                'lt': '<',
-                'le': '<=',
-                'eq': '=',
-                'ne': '!=',
-                'ge': '>=',
-                'gt': '>'
-            }
-
-    def __init__(self, number, op='eq'):
-        self.number = number
-        if op not in self.op_map:
-            raise TypeError('TagFilter.number: unknown operation {0}'.format(op))
-        self.op = op
-
-    def passes(self, tag):
-        op_func = getattr(operator, self.op)
-        return tag is not None and tag.value.valueType == TagValue.TYPE_NUMBER and \
-                op_func(tag.value.number, self.number)
-
-    def generateSql(self):
-        return "value_type = {0} and value {1} {2}" \
-                    .format(TagValue.TYPE_NUMBER, _Tag_Number.op_map[self.op], self.number)
-
-    def qeval(self):
-        return -1
-
-
-class _Tag_Locator(object):
-    def __init__(self, locator):
-        self.locator = locator
-
-    def passes(self, tag):
-        return tag is not None and tag.value.locator == self.locator
-
-    def generateSql(self):
-        return "value_type = {0} and value = '{1}'" \
-               .format(TagValue.TYPE_LOCATOR, self.locator.databaseForm)
-
-    def qeval(self):
-        return -1
-
-
-class _Tag_Object(object):
-    def __init__(self, nodeReference):
-        self.nodeReference = nodeReference
-
-    def passes(self, tag):
-        return tag is not None and tag.value.nodeReference == self.nodeReference
-
-    def generateSql(self):
-        if self.nodeReference.isFlushed:
-            return 'value_type = {0} and value = {1}' \
-                    .format(TagValue.TYPE_NODE_REFERENCE, self.nodeReference.id)
-        else:
-            return _Filter_Block().generateSql()
-
-    def qeval(self):
-        return 0 if not self.nodeReference.isFlushed else -1
-
-
-class _Tag_ValueType(object):
-    def __init__(self, valueType):
-        self.valueType = valueType
-
-    def passes(self, tag):
-        return tag is not None and tag.value.valueType == self.valueType
-
-    def generateSql(self):
-        return "value_type = {0}".format(self.valueType)
-
-    def qeval(self):
-        return -1
-
-
-class _Tag_NoneValue(_Tag_ValueType):
-    def __init__(self):
-        super().__init__(TagValue.TYPE_NONE)
-
-
-class _Tag_Value(object):
-    def __init__(self, value):
-        self.value = TagValue(value)
-
-    def passes(self, tag):
-        return tag and tag.value == self.value
-
-    def generateSql(self):
-        if self.value.valueType == TagValue.TYPE_TEXT:
-            return _Tag_Text(self.value.text).generateSql()
-        elif self.value.valueType == TagValue.TYPE_NUMBER:
-            return _Tag_Number(self.value.number).generateSql()
-        elif self.value.valueType == TagValue.TYPE_LOCATOR:
-            return _Tag_Locator(self.value.locator).generateSql()
-        elif self.value.valueType == TagValue.TYPE_NODE_REFERENCE:
-            return _Tag_Object(self.value.nodeReference).generateSql()
-        elif self.value.valueType == TagValue.TYPE_NONE:
-            return _Tag_NoneValue().generateSql()
-        else:
-            raise TypeError()
-
-    def qeval(self):
-        return 0 if not TagValue.isValueTypeCorrect(self.value.valueType) else -1
-
-
-class _Tag_Unused(object):
-    def passes(self, tag):
-        if tag is None or not tag.isFlushed:
-            return False
-
-        return not tag.lib.nodes(NodeQuery(tags=tag).limit(1))
-
-    def generateSql(self):
-        return 'id not in (select distinct tag_id from links)'
-
-    def qeval(self):
-        return -1
-
-
-class _Tag_LinkedWith(object):
-    def __init__(self, obj):
-        self.node = obj
-
-    def passes(self, tag):
-        obj = self.node.lib.node(self.node)
-        return obj is not None and obj.testTag(tag)
-
-    def generateSql(self):
-        if self.node.isFlushed:
-            return 'id in (select tag_id from links where node_id = {0})' \
-                   .format(self.node.id)
-        else:
-            return _Filter_Block().generateSql()
-
-    def qeval(self):
-        return 0 if not self.node.isFlushed else -1
-
-
-class _Tag_Hidden(object):
-    def __init__(self, is_hidden):
-        self.is_hidden = is_hidden
-
-    def passes(self, tag):
-        return tag is not None and bool(tag.tagClass.hidden) == bool(self.is_hidden)
-
-    def generateSql(self):
-        return 'class_id in (select id from tag_classes where hidden = {0})' \
-               .format(int(self.is_hidden))
-
-    def qeval(self):
-        return -1
-
-
-class _Tag_FriendOf(object):
-    def __init__(self, tag):
-        self.tag = tag
-
-    def passes(self, tag):
-        if tag is None or not tag.isFlushed or self.qeval() == 0:
-            return False
-
-        return tag.lib == self.tag.lib and tag.isFriendOf(self.tag)
-
-    def generateSql(self):
-        if self.qeval() == 0:
-            return _Filter_Block().generateSql()
-
-        return 'id in (select tag_id from links where node_id in (select node_id from links where tag_id = {0}))' \
-               .format(self.tag.id)
-
-    def qeval(self):
-        return 0 if self.tag is None or not self.tag.isFlushed else -1
-
-
-class _Tag_ValueToText(object):
-    def __init__(self, text):
-        self.text = text
-
-    def passes(self, tag):
-        if tag is None or self.qeval() == 0:
-            return False
-
-        return self.text == str(tag.value)
-
-    def generateSql(self):
-        return "match_tagvalue(value, '{0}')".format(str(self.text))
-
-    def qeval(self):
-        return -1
+    def debugRepr(self):
+        return self.__filter.debugRepr(0)
 
 
 class TagQuery(_Query):
@@ -719,78 +788,13 @@ class TagQuery(_Query):
             elif arg.startswith('number_'):
                 f = _Filter_And(f, _Tag_Number(kwargs[arg], arg[7:]))
             else:
-                raise TypeError('TagQuery.filter: unknown argument {0}'.format(arg))
+                raise TypeError('TagQuery.__getFilter: unknown argument {0}'.format(arg))
         return f
-
-
-TagFilter = TagQuery
-
-#####################################################################33
-
-
-class _Node_DisplayName(object):
-    def __init__(self, display_name):
-        self.displayName = display_name
-
-    def passes(self, obj):
-        return obj is not None and self.displayName == obj.displayNameTemplate
-
-    def generateSql(self):
-        return generateSqlCompare('display_name', self.displayName)
-
-    def qeval(self):
-        return -1
-
-
-class _Node_Identity(object):
-    def __init__(self, obj):
-        self.identity = get_identity(obj)
-
-    def passes(self, obj):
-        return obj is not None and self.identity == get_identity(obj)
-
-    def generateSql(self):
-        if self.identity.isFlushed:
-            return "id = {0}".format(self.identity.id)
-        else:
-            return _Filter_Block().generateSql()
-
-    def qeval(self):
-        return 0 if not self.identity.isFlushed else -1
-
-
-class _Node_Tags(object):
-    def __init__(self, f):
-        if isinstance(f, (Tag, Identity)):
-            self.tagFilter = TagQuery(identity=f)
-        else:
-            self.tagFilter = f
-
-    def passes(self, obj):
-        return obj is not None and obj.testTag(self.tagFilter)
-
-    def generateSql(self):
-        return ('id in (select node_id from links where tag_id in ' \
-                + '(select id from tags where {0}))').format(self.tagFilter.generateSqlWhere())
-
-    def qeval(self):
-        return self.tagFilter.qeval()
-
-
-class _Node_WithoutTags(object):
-    def passes(self, obj):
-        return obj is not None and not obj.allTags
-
-    def generateSql(self):
-        return 'id not in (select distinct node_id from links)'
-
-    def qeval(self):
-        return -1
 
 
 class NodeQuery(_Query):
     def __init__(self, **kwargs):
-        super().__init__(self.__getFilter(**kwargs))
+        _Query.__init__(self, self.__getFilter(**kwargs))
 
     def filter(self, **kwargs):
         """Get new query with filters AND'ed with filters of this query. Allowed arguments:
@@ -825,16 +829,11 @@ class NodeQuery(_Query):
             elif arg.startswith('tag_'):
                 f = _Filter_And(f, _Node_Tags(TagQuery(tagClass=arg[4:], value=kwargs[arg])))
             else:
-                raise TypeError('NodeQuery.filter: unknown argument {0}'.format(arg))
+                raise TypeError('NodeQuery.__getFilter: unknown argument {0}'.format(arg))
         return f
 
-NodeFilter = NodeQuery
 
-
-_lastGeneratedHint = 1000
-
-
-def generateFilterHint():
-    global _lastGeneratedHint
-    _lastGeneratedHint += 1
-    return _lastGeneratedHint
+def replaceInFilters(filters_list, hint, replacement):
+    l = [f for f in filters_list if f.hint != hint]
+    l.append(replacement)
+    return l

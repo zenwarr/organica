@@ -1,4 +1,4 @@
-from copy import copy
+import copy
 
 from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex
 
@@ -34,7 +34,7 @@ class TagsModel(QAbstractItemModel, Lockable):
         self.__leaves = dict()  # dictionary of leaves by id
         self.__showHidden = False  # True if model should take hidden tags into account
         self.__lastNodeId = -1
-        self.__filter = None
+        self.__filters = []
         self.__reset()
 
     @property
@@ -45,7 +45,7 @@ class TagsModel(QAbstractItemModel, Lockable):
     @property
     def hierarchy(self):
         with self.lock:
-            return copy(self.__hierarchy)
+            return copy.deepcopy(self.__hierarchy)
 
     @hierarchy.setter
     def hierarchy(self, new_hierarchy):
@@ -67,17 +67,26 @@ class TagsModel(QAbstractItemModel, Lockable):
                 self.__reset()
 
     @property
-    def filter(self):
-        """Filter applied only to first-level items. Should be of TagQuery type.
+    def query(self):
+        """Query used to fetch first-level items. Should be of TagQuery type.
         """
 
         with self.lock:
-            return self.__filter
+            r_filter = self.__filters[0] if self.__filters else TagQuery()
+            for f in self.__filters[1:]:
+                r_filter = r_filter & f
+            return r_filter
 
-    @filter.setter
-    def filter(self, new_filter):
+    @property
+    def filters(self):
         with self.lock:
-            self.__filter = new_filter
+            return copy.deepcopy(self.__filters)
+
+    @filters.setter
+    def filters(self, new_filters):
+        with self.lock:
+            self.__filters = new_filters
+            print('new filter:\n' + self.query.debugRepr())
             self.__reset()
 
     def __reset(self):
@@ -119,11 +128,8 @@ class TagsModel(QAbstractItemModel, Lockable):
             children_filter = children_filter & TagQuery(friend_of=leaf.tag)
         if not self.__showHidden:
             children_filter = children_filter & TagQuery(hidden=False)
-        if leaf.level == 0 and self.__filter is not None and self.__filter.qeval() != 1:
-            if self.__filter.qeval() == 0:
-                children_filter = TagQuery().blocked()
-            else:
-                children_filter = children_filter & self.__filter
+        if leaf.level == 0:
+            children_filter = children_filter & self.query
 
         leaf.tagset = TagSet(self.lib, children_filter)
 

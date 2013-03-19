@@ -1,11 +1,11 @@
-from PyQt4.QtCore import pyqtSignal, Qt, QModelIndex
+from PyQt4.QtCore import pyqtSignal, Qt
 from PyQt4.QtGui import QToolButton, QSortFilterProxyModel, QWidget, QLineEdit, QTreeView, QIcon, QButtonGroup, \
                         QVBoxLayout, QHBoxLayout, QMenu
 
 from organica.gui.selectionmodel import WatchingSelectionModel
 from organica.gui.actions import StandardStateValidator, globalCommandManager
 from organica.lib.tagsmodel import TagsModel
-from organica.lib.filters import TagQuery, Wildcard
+from organica.lib.filters import TagQuery, Wildcard, replaceInFilters
 from organica.utils.extend import globalObjectPool
 import organica.gui.resources.qrc_main
 
@@ -38,6 +38,8 @@ class TopicsView(QWidget):
 
     modeChanged = pyqtSignal(object)  # gets mode object as argument
     selectedTagChanged = pyqtSignal(object)  # gets tag identity as argument
+
+    searchFilterHint = 'search_filter'
 
     def __init__(self, parent, lib):
         QWidget.__init__(self, parent)
@@ -160,7 +162,9 @@ class TopicsView(QWidget):
     def __onSearchTextChanged(self, new_search_text):
         tags_model = self._treeModel.sourceModel()
         if tags_model is not None:
-            tags_model.filter = TagQuery(value_to_text=Wildcard('*{0}*'.format(new_search_text)))
+            search_filter = TagQuery(value_to_text=Wildcard('*{0}*'.format(new_search_text))) if new_search_text else TagQuery()
+            search_filter.hint = self.searchFilterHint
+            tags_model.filters = replaceInFilters(tags_model.filters, self.searchFilterHint, search_filter)
 
     def __addMode(self, mode_object):
         mode_button = QToolButton()
@@ -197,8 +201,8 @@ class TopicsView(QWidget):
         pass
 
     def __onCurrentTagChanged(self, new_index):
-        tag = new_index.data(TagsModel.TagIdentityRole) if new_index.isValid() else None
+        tag = new_index.data(TagsModel.TagIdentityRole)
         self.selectedTagChanged.emit(tag)
 
     def __onCurrentTagReset(self):
-        self.__onCurrentTagChanged(QModelIndex())
+        self.selectedTagChanged.emit(None)

@@ -259,12 +259,4 @@ class TestFilters(unittest.TestCase):
         self.assertTrue(obj_unknown_book.passes(f))
         self.assertTrue(obj_unflushed.passes(f))
 
-        # test hinting of filters
-
-        f = TagQuery(tag_class='author')
-        f.hint = 'my_hint'
-        self.assertEqual(f.qeval(), -1)
-        f.disableHinted('my_hint')
-        self.assertEqual(f.qeval(), 1)
-
         lib.disconnectDatabase()

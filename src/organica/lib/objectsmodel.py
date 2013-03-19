@@ -3,6 +3,7 @@ from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex
 from organica.utils.helpers import removeLastSlash, tr
 from organica.utils.lockable import Lockable
 from organica.lib.sets import NodeSet
+from organica.lib.filters import TagQuery
 
 
 class NodeNameColumn(object):
@@ -56,6 +57,7 @@ class ObjectsModel(QAbstractItemModel, Lockable):
         self.__set = NodeSet(self.__lib)
         self.__columns = [NodeNameColumn(), NodeLocatorColumn()]
         self.__cached_nodes = []
+        self.__filters = []
 
         with self.__set.lock:
             self.__cached_nodes = self.__set.allNodes
@@ -73,12 +75,21 @@ class ObjectsModel(QAbstractItemModel, Lockable):
     @property
     def query(self):
         with self.lock:
-            return self.__set.query
+            r_filter = self.__filters[0] if self.__filters else TagQuery()
+            for f in self.__filters[1:]:
+                r_filter = r_filter & f
+            return r_filter
 
-    @query.setter
-    def query(self, new_query):
+    @property
+    def filters(self):
         with self.lock:
-            self.__set.query = new_query
+            return self.__filters
+
+    @filters.setter
+    def filters(self, new_filters):
+        with self.lock:
+            self.__filters = new_filters
+            self.__set.query = self.query
 
     def flags(self, index):
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable

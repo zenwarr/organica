@@ -18,7 +18,7 @@ from organica.gui.profiles import ProfileManager
 from organica.lib.library import Library
 from organica.gui.createlibrarywizard import CreateLibraryWizard
 from organica.lib.storage import LocalStorage
-from organica.lib.filters import generateFilterHint
+from organica.lib.filters import replaceInFilters
 
 
 class LibraryEnvironment(object):
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
-    objectsViewFilterHint = generateFilterHint()
+    objectsViewFilterHint = 'topic_filter'
 
     def __init__(self):
         QMainWindow.__init__(self)
@@ -384,20 +384,11 @@ class MainWindow(QMainWindow):
         else:
             return
 
-        existing_filter = environ.ui.objectsView.model.query
-        if existing_filter is not None:
-            existing_filter = existing_filter.disableHinted(self.objectsViewFilterHint)
+        objects_model = environ.ui.objectsView.model
 
-        if new_tag_ident is not None:
-            topic_filter = NodeQuery(tags=TagQuery(identity=new_tag_ident))
-        else:
-            topic_filter = NodeQuery()
-
+        topic_filter = NodeQuery(tags=TagQuery(identity=new_tag_ident)) if new_tag_ident is not None else NodeQuery()
         topic_filter.hint = self.objectsViewFilterHint
-        if existing_filter is not None:
-            environ.ui.objectsView.model.query = existing_filter & topic_filter
-        else:
-            environ.ui.objectsView.model.query = topic_filter
+        objects_model.filters = replaceInFilters(objects_model.filters, self.objectsViewFilterHint, topic_filter)
 
 
 _mainWindow = None

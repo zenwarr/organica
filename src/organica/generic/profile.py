@@ -1,7 +1,7 @@
 from PyQt4.QtGui import QComboBox
 
 from organica.lib.tagclassesmodel import TagClassesModel
-from organica.lib.filters import TagQuery
+from organica.lib.filters import TagQuery, replaceInFilters
 from organica.utils.extend import globalObjectPool
 from organica.generic.extension import GENERIC_EXTENSION_UUID
 
@@ -10,7 +10,7 @@ GENERIC_PROFILE_UUID = '7c73bb70-6720-11e2-bcfd-0800200c9a66'
 
 
 class TopicNameCombo(QComboBox):
-    filterHint = 1000
+    filterHint = 'class_name_filter'
 
     def __init__(self, environ, parent):
         QComboBox.__init__(self, parent)
@@ -44,20 +44,9 @@ class TopicNameCombo(QComboBox):
             # save current item
             current_tag = self.environ.ui.topicsView.selectedTag
 
-            existing_filter = topics_model.filter
-            if existing_filter is not None:
-                existing_filter = existing_filter.disableHinted(self.filterHint)
-
-            if class_name != '*':
-                class_filter = TagQuery(tag_class=class_name)
-            else:
-                class_filter = TagQuery()
-
+            class_filter = TagQuery(tag_class=class_name) if class_name != '*' else TagQuery()
             class_filter.hint = self.filterHint
-            if existing_filter is not None:
-                topics_model.filter = existing_filter & class_filter
-            else:
-                topics_model.filter = class_filter
+            topics_model.filters = replaceInFilters(topics_model.filters, self.filterHint, class_filter)
 
             if current_tag:
                 indexes = topics_model.indexesForTag(current_tag)
