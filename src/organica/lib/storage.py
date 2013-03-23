@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class LocalStorage(object):
-    STORAGE_METADATA_FILENAME = 'storage.meta'
+    STORAGE_METADATA_FILENAME = 'meta.storage'
 
     def __init__(self):
         self.__rootDirectory = ''
@@ -175,3 +175,15 @@ class LocalStorage(object):
     @staticmethod
     def isDirectoryStorage(path):
         return os.path.exists(path) and os.path.exists(os.path.join(path, LocalStorage.STORAGE_METADATA_FILENAME))
+
+    def getStoragePath(self, source_path, node):
+        from organica.utils.formatstring import FormatString
+        import organica.utils.helpers as helpers
+
+        path_template = self.getMeta('path_template')
+        if path_template:
+            fs = FormatString(path_template)
+            fs.registerCustomBlock('$', lambda node, token: helpers.removeLastSlash(source_path))
+            return fs.format(node)
+        else:
+            return helpers.removeLastSlash(source_path)

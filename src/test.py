@@ -15,6 +15,7 @@ import organica.tests.objectsmodel
 
 def run():
     constants.disable_set_queued_connections = True
+    constants.test_run = True
 
     module_list = (
                     organica.tests.wildcard,

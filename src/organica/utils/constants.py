@@ -26,3 +26,6 @@ gui_thread = None
 disable_set_queued_connections = False
 
 debug_plugins = True
+
+test_run = False
+

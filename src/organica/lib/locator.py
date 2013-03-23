@@ -7,12 +7,13 @@ from organica.utils.helpers import cicompare
 class Locator(object):
     MANAGED_FILES_SCHEME = 'storage'
 
-    def __init__(self, url=''):
+    def __init__(self, url='', source_url=None):
         if isinstance(url, str) and url and (QUrl(url).scheme() in ('file', '')):
             self.__url = QUrl.fromLocalFile(url)
         else:
             self.__url = QUrl(url)
         self.__lib = None
+        self.__sourceUrl = source_url
 
     def lib(self):
         return self.__lib if self.isManagedFile else None
@@ -98,3 +99,7 @@ class Locator(object):
 
     def __eq__(self, other):
         return isinstance(other, Locator) and self.__url == other.__url
+
+    @property
+    def sourceUrl(self):
+        return self.__sourceUrl

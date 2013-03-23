@@ -281,7 +281,10 @@ def globalSettings():
 
     global _globalSettings
     if _globalSettings is None:
-        _globalSettings = Settings(defaultSettingsFilename, strict_control=True)
+        # under tests we should always return default values for all settings without reading
+        # configuration file. This is possible only if strict_control is disabled.
+        from organica.utils.constants import test_run
+        _globalSettings = Settings(defaultSettingsFilename, strict_control=not test_run)
     return _globalSettings
 
 

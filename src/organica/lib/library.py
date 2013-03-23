@@ -11,9 +11,9 @@ from PyQt4.QtCore import QObject, pyqtSignal, QFileInfo
 import organica.utils.helpers as helpers
 from organica.utils.lockable import Lockable
 from organica.lib.filters import Wildcard, generateSqlCompare, TagQuery, NodeQuery
-from organica.lib.objects import (Node, Tag, TagClass, TagValue, isCorrectIdent, Identity,
-                                  ObjectError, get_identity)
+from organica.lib.objects import Node, Tag, TagClass, TagValue, isCorrectIdent, Identity, ObjectError, get_identity
 from organica.lib.storage import LocalStorage
+from organica.lib.locator import Locator
 
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,9 @@ class Library(QObject, Lockable):
 
     classCreated = pyqtSignal(TagClass)
     classRemoved = pyqtSignal(TagClass)
+
+    resourceLinkCreated = pyqtSignal(Locator)
+    resourceLinkRemoved = pyqtSignal(Locator)
 
     def __init__(self):
         QObject.__init__(self)
@@ -368,8 +371,6 @@ class Library(QObject, Lockable):
 
             return tc
 
-    getOrCreateTagClass = createTagClass
-
     def removeTagClass(self, tag_class, remove_tags=False):
         """Remove class by name or Identity. If :remove_tags: is True, all tags with this
         class will also be removed. Otherwise LibraryError will be raised if there are any
@@ -494,9 +495,8 @@ class Library(QObject, Lockable):
 
             # and notify
             self.tagCreated.emit(deepcopy(tag))
-            return tag
 
-    getOrCreateTag = createTag
+            return tag
 
     def flushTag(self, tag_to_flush):
         """Flush tag into database.
@@ -927,6 +927,7 @@ class Library(QObject, Lockable):
                 return
 
             self._storage = new_storage
+
             if self._storage is not None and self._storage.rootDirectory:
                 self.setMeta('storage_path', new_storage.rootDirectory)
             else:

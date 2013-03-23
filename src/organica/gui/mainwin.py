@@ -4,7 +4,7 @@ import sys
 
 from PyQt4.QtGui import QMainWindow, QSplitter, QWidget, QIcon, QFileDialog, QMessageBox, \
                         QTabWidget, QVBoxLayout
-from PyQt4.QtCore import QByteArray, QCoreApplication, QFileInfo, QDir
+from PyQt4.QtCore import QByteArray, QCoreApplication, QFileInfo, QDir, QUrl
 
 from organica.utils.settings import globalQuickSettings
 import organica.gui.resources.qrc_main  # resource initialization
@@ -329,14 +329,10 @@ class MainWindow(QMainWindow):
             dialog = QFileDialog(self, tr('Add directory with contents to library'))
             dialog.setFileMode(QFileDialog.Directory)
             if dialog.exec_() == QFileDialog.Accepted:
-                self.addFile(dialog.selectedFiles()[0])
+                self.addFilesFromList([dialog.selectedFiles()[0]])
                 qs['lastfiledialogpath'] = dialog.selectedFiles()[0]
 
     def addFilesFromList(self, filenames):
-        for filename in filenames:
-            self.addFile(filename)
-
-    def addFile(self, filename):
         from organica.lib.objects import Node, Identity, Tag
         from organica.lib.locator import Locator
         from organica.gui.nodedialog import NodeEditDialog
@@ -344,22 +340,25 @@ class MainWindow(QMainWindow):
 
         env = self.activeEnviron
         if env is not None and env.lib is not None:
-            node = Node()
-            node.identity = Identity(env.lib)
-            node.link(Tag(env.lib.tagClass('locator'), Locator.fromLocalFile(filename)))
-            nodeEditDialog = NodeEditDialog(self, env.lib, [node])
-            if nodeEditDialog.exec_() == NodeEditDialog.Accepted:
-                if env.lib.storage is not None:
-                    path_template = None
-                    if env.lib.storage.testMeta('path_template'):
-                        path_template = env.lib.storage.getMeta('path_template')
+            nodes = []
+            for filename in filenames:
+                node = Node()
+                node.identity = Identity(env.lib)
 
-                    if not path_template:
-                        result_path = os.path.basename(filename)
+                locator_class = env.lib.tagClass('locator')
+                if locator_class:
+                    if env.lib.storage is not None:
+                        default_locator = Locator.fromManagedFile(FormatString(env.lib.storage.getMeta('path_template')) \
+                                    .format(node), QUrl.fromLocalFile(filename))
                     else:
-                        result_path = FormatString(path_template).format(node)
+                        default_locator = Locator.fromLocalFile(filename)
 
-                    env.lib.storage.addFile(filename, result_path)
+                    node.link(Tag(env.lib.tagClass('locator'), default_locator))
+                nodes.append(node)
+
+            nodeEditDialog = NodeEditDialog(self, env.lib, nodes)
+            nodeEditDialog.autoFlush = True
+            nodeEditDialog.exec_()
 
     def showLibraryDatabase(self):
         from organica.gui.databasewidget import DatabaseDialog

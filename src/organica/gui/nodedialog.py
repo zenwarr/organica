@@ -9,6 +9,7 @@ from PyQt4.QtGui import QDialog, QListView, QTabWidget, QDialogButtonBox, QStand
 from organica.utils.helpers import tr, removeLastSlash
 from organica.utils.extend import globalObjectPool
 from organica.utils.settings import globalQuickSettings
+from organica.gui.dialog import Dialog
 
 
 logger = logging.getLogger(__name__)
@@ -17,13 +18,13 @@ logger = logging.getLogger(__name__)
 NODE_EDITOR_PROVIDER_GROUP = 'node_editor_provider'
 
 
-class NodeEditDialog(QDialog):
+class NodeEditDialog(Dialog):
     """Dialog used when new objects are added to library or existing ones are edited. It
     allows user to edit one or more nodes of one library.
     """
 
     def __init__(self, parent, lib, nodes):
-        QDialog.__init__(self, parent)
+        Dialog.__init__(self, parent, name='node_edit_dialog')
 
         self.lib = lib
         self.__nodes = []
@@ -165,8 +166,7 @@ class NodeEditDialog(QDialog):
         """
         self.__save()
         if self.autoFlush:
-            for node in self.__nodes:
-                node.flush(self.lib)
+            self.flush()
         QDialog.accept(self)
 
     def __setNodes(self, new_nodes):
@@ -195,13 +195,20 @@ class NodeEditDialog(QDialog):
                     last_unk_id += 1
                     item.setText(tr('<element {0}>').format(last_unk_id))
             else:
-                # take first locator and use it
-                if locators[0].isLocalFile:
-                    full_filename = removeLastSlash(locators[0].localFilePath)
+                # take first locator and use it. If we have sourceUrl defined, use it instead.
+                choosen_locator = locators[0]
+                if choosen_locator.sourceUrl:
+                    if choosen_locator.sourceUrl.isLocalFile():
+                        filepath = removeLastSlash(choosen_locator.sourceUrl.toLocalFile())
+                        item.setText(os.path.basename(filepath))
+                    else:
+                        item.setText(choosen_locator.sourceUrl.toString())
+                elif choosen_locator.isLocalFile:
+                    full_filename = removeLastSlash(choosen_locator.localFilePath)
                     item.setText(os.path.basename(full_filename))
                 else:
-                    item.setText(locators[0].url)
-                item.setIcon(locators[0].icon)
+                    item.setText(choosen_locator.url)
+                item.setIcon(choosen_locator.icon)
 
             node_copy = copy.deepcopy(node)
             item.setData(node_copy, Qt.UserRole)
@@ -303,3 +310,31 @@ class NodeEditDialog(QDialog):
         if self.__nodesLoaded:
             self.__save()
         self.__load()
+
+    def flush(self):
+        from organica.lib.objects import TagValue
+        from organica.lib.storage import LocalStorage
+        from organica.utils.operations import globalOperationContext, WrapperOperation, globalOperationPool
+
+        resources_to_move = []
+        for node in self.__nodes:
+            node.flush(self.lib)
+            for tag in node.allTags:
+                if tag.valueType == TagValue.TYPE_LOCATOR and tag.value.locator.sourceUrl:
+                    resources_to_move.append((node, tag))
+
+        def moveResources(resources_to_move):
+            with globalOperationContext().currentOperation() as op:
+                progress_part = 100.0 / len(resources_to_move)
+                for node, tag in resources_to_move:
+                    source_filename = tag.value.locator.sourceUrl.toLocalFile()
+                    target_filename = tag.value.locator.localFilePath
+                    with globalOperationContext().newOperation('adding {0}'.format(source_filename),
+                                                               progress_weight=progress_part):
+                        if not tag.value.locator.sourceUrl.isLocalFile() or not tag.value.locator.isLocalFile:
+                            op.addMessage(tr('Storage supports only file source and target'), logging.ERROR)
+                            continue
+                        node.lib.storage.addFile(source_filename, target_filename)
+
+        move_operation = WrapperOperation(lambda: moveResources(resources_to_move))
+        globalOperationPool().addOperation(move_operation)

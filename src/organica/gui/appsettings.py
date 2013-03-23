@@ -11,7 +11,8 @@ def doRegister():
         _settings_to_register = (
                          ('log_file_name', None),
                          ('default_error_policy', 'ask'),
-                         ('disabled_plugins', [])
+                         ('disabled_plugins', []),
+                         ('pool_operations_limit', 10)
                          )
 
         s = globalSettings()

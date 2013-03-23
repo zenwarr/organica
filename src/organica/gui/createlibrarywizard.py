@@ -205,8 +205,8 @@ class StoragePage(QWizardPage):
 
         # check if storage directory choosen is storage already
         if LocalStorage.isDirectoryStorage(self.pathEdit.path):
-            ans = QMessageBox.question(self, tr('Directory is storage'), tr('It seems like choosen directory already ' \
-                             'used as storage. Old parameters will be imported (remove storage.meta file to ' \
+            ans = QMessageBox.question(self, tr('Directory is storage'), tr('It seems like choosen directory already '
+                             'used as storage. Old parameters will be imported (remove meta.storage file to '
                              'reset storage parameters). Really use this directory?'),
                              QMessageBox.Yes | QMessageBox.No)
             return ans != QMessageBox.No

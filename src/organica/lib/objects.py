@@ -434,6 +434,10 @@ class Tag(LibraryObject):
     def className(self):
         return self.tagClass.name if self.tagClass else ''
 
+    @property
+    def valueType(self):
+        return self.tagClass.valueType
+
     def passes(self, condition):
         """Check if this tag satisfies given condition. Condition can be tag Identity - in this case
         method checks if this identity equal to tag identity. Condition can be Tag object - method will

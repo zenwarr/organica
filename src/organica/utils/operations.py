@@ -17,15 +17,11 @@ class OperationError(Exception):
 
 class OperationState:
     # values for OperationState.status
-    NOT_STARTED = 0
-    RUNNING = 1
-    PAUSED = 2
-    CANCELLED = 3
-    COMPLETED = 4
-    FAILED = 5
+    NOT_STARTED, WAITING_FOR_START, RUNNING, PAUSED, CANCELLED, COMPLETED, FAILED = range(7)
 
     _map_status = {
         NOT_STARTED: 'Not started',
+        WAITING_FOR_START: 'Waiting for start',
         RUNNING: 'Running',
         PAUSED: 'Paused',
         CANCELLED: 'Cancelled',
@@ -60,7 +56,7 @@ class OperationState:
         or OperationState.PAUSED)
         """
 
-        return self.status == OperationState.RUNNING or self.status == OperationState.PAUSED
+        return self.status in (self.RUNNING, self.WAITING_FOR_START, self.PAUSED)
 
     @property
     def isFinished(self):
@@ -69,6 +65,10 @@ class OperationState:
         """
 
         return self.status in (OperationState.CANCELLED, OperationState.COMPLETED, OperationState.FAILED)
+
+    @property
+    def isStarted(self):
+        return self.status != self.NOT_STARTED
 
 
 class _CallbackRequestEvent(QEvent):
@@ -198,6 +198,7 @@ class Operation(QObject, Lockable):
     warningCountIncreased = pyqtSignal(int)
     newResult = pyqtSignal(str, object)
     finished = pyqtSignal(int)
+    started = pyqtSignal()
 
     # predefined commands for use with sendCommand
     PAUSE_COMMAND = 'pause'
@@ -214,7 +215,7 @@ class Operation(QObject, Lockable):
     FAIL_ERROR_POLICY = 'fail'
     ASK_USER_ERROR_POLICY = 'ask'
 
-    def __init__(self, title=''):
+    def __init__(self, title='', parent=None):
         QObject.__init__(self)
         Lockable.__init__(self)
 
@@ -232,6 +233,8 @@ class Operation(QObject, Lockable):
         self.__subOperationStack = []
 
         self.__errorPolicy = self.DEFAULT_ERROR_POLICY
+
+        self._parentOperation = parent
 
     @property
     def title(self):
@@ -269,6 +272,11 @@ class Operation(QObject, Lockable):
             if self.__errorPolicy != new_policy:
                 self.__errorPolicy = new_policy
 
+    @property
+    def parentOperation(self):
+        with self.lock:
+            return self._parentOperation
+
     def sendCommand(self, command):
         """Send command to operation code. Operation can process commands in two ways:
         1. Reimplement onCommandReceived method which is called each time new command sent.
@@ -296,9 +304,9 @@ class Operation(QObject, Lockable):
             self.__runMode = runMode
 
         if runMode == self.RUNMODE_THIS_THREAD:
-            self.__work()
+            self._work()
         elif runMode == self.RUNMODE_NEW_THREAD:
-            Thread(target=self.__work).start()
+            globalOperationPool().addOperation(self)
 
     def sendPause(self):
         """Send pause command to operation
@@ -393,7 +401,7 @@ class Operation(QObject, Lockable):
 
         return False
 
-    def __work(self):
+    def _work(self):
         """Private method to execute operation code. Operation code contained in reimplemented
         Operation.doWork method will be at least one time. Another subsequent calls will be made
         if requestDoWork is True (this flag reset before calling doWork).
@@ -404,7 +412,7 @@ class Operation(QObject, Lockable):
         """
 
         with self.lock:
-            if self.state.status != OperationState.NOT_STARTED:
+            if self.state.isStarted:
                 raise OperationError('operation already had been started')
             self.__start()
             self.__requestDoWork = True
@@ -437,6 +445,8 @@ class Operation(QObject, Lockable):
     def setStatus(self, new_status):
         with self.lock:
             if self.state.status != new_status:
+                starting = not self.state.isStarted and new_status != OperationState.NOT_STARTED
+
                 self.__setStateAttribute('status', new_status)
 
                 if self.state.isFinished:
@@ -450,6 +460,9 @@ class Operation(QObject, Lockable):
                         pass
 
                     self.finished.emit(self.state.status)
+
+                if starting:
+                    self.started.emit()
 
     def setProgress(self, new_progress):
         if new_progress < 0 or new_progress > 100:
@@ -519,51 +532,53 @@ class Operation(QObject, Lockable):
         """
 
         with self.lock:
-            if self.state.isFinished:
-                raise OperationError('cannot execute sub-operation in context of finished operation')
-            if self.state.status != OperationState.RUNNING:
-                raise OperationError('operation state should be RUNNING to execute sub-operation')
-            if subop is None or subop.state.status != OperationState.NOT_STARTED:
-                raise OperationError('invalid sub-operation: should be alive and not started')
+            with subop.lock:
+                if self.state.isFinished:
+                    raise OperationError('cannot execute sub-operation in context of finished operation')
+                if self.state.status != OperationState.RUNNING:
+                    raise OperationError('operation state should be RUNNING to execute sub-operation')
+                if subop.state.isStarted:
+                    raise OperationError('invalid sub-operation: should be alive and not started')
+                subop._parentOperation = self
 
-            # normalize progress_weight value to be in range 0...100
-            if progress_weight < 0.0:
-                progress_weight = 0.0
-            elif progress_weight > 100.0:
-                progress_weight = 100.0
+                # normalize progress_weight value to be in range 0...100
+                if progress_weight < 0.0:
+                    progress_weight = 0.0
+                elif progress_weight > 100.0:
+                    progress_weight = 100.0
 
-            self.__subOperationStack.append((subop, copy(self.state), progress_weight, process_results,
-                                            result_name_converter, finish_on_fail))
-            saved_state = self.state
+                self.__subOperationStack.append((subop, copy(self.state), progress_weight, process_results,
+                                                result_name_converter, finish_on_fail))
+                saved_state = self.state
 
-            self.setCanPause(subop.state.canPause)
-            self.setCanCancel(self.state.canCancel and subop.canCancel)
-            self.setProgressText(subop.state.progressText or self.state.progressText)
+                self.setCanPause(subop.state.canPause)
+                self.setCanCancel(self.state.canCancel and subop.canCancel)
+                self.setProgressText(subop.state.progressText or self.state.progressText)
 
-            # if current progress value + progress_weight is greater 100, decrease
-            # current progress
-            if self.state.progress + progress_weight > 100.0:
-                self.setProgress(100.0 - progress_weight)
+                # if current progress value + progress_weight is greater 100, decrease
+                # current progress
+                if self.state.progress + progress_weight > 100.0:
+                    self.setProgress(100.0 - progress_weight)
 
-            # connect signals to make it possible to react on sub-op changes
-            subop.progressChanged.connect(self.__onSubopProgress, Qt.DirectConnection)
-            subop.progressTextChanged.connect(self.__onSubopProgressText, Qt.DirectConnection)
-            subop.messageAdded.connect(self.addMessage, Qt.DirectConnection)
-            subop.canPauseChanged.connect(self.setCanPause, Qt.DirectConnection)
-            subop.canCancelChanged.connect(lambda canCancel: self.setCanCancel(saved_state.canCancel and canCancel),
-                                           Qt.DirectConnection)
-            subop.statusChanged.connect(self.__onSubopStatus, Qt.DirectConnection)
+                # connect signals to make it possible to react on sub-op changes
+                subop.progressChanged.connect(self.__onSubopProgress, Qt.DirectConnection)
+                subop.progressTextChanged.connect(self.__onSubopProgressText, Qt.DirectConnection)
+                subop.messageAdded.connect(self.addMessage, Qt.DirectConnection)
+                subop.canPauseChanged.connect(self.setCanPause, Qt.DirectConnection)
+                subop.canCancelChanged.connect(lambda canCancel: self.setCanCancel(saved_state.canCancel and canCancel),
+                                               Qt.DirectConnection)
+                subop.statusChanged.connect(self.__onSubopStatus, Qt.DirectConnection)
 
-            if process_results:
-                if result_name_converter is not None:
-                    subop.newResult.connect(lambda k, v: self.addResult(result_name_converter(k), v),
-                                            Qt.DirectConnection)
-                else:
-                    subop.newResult.connect(self.addResult, Qt.DirectConnection)
+                if process_results:
+                    if result_name_converter is not None:
+                        subop.newResult.connect(lambda k, v: self.addResult(result_name_converter(k), v),
+                                                Qt.DirectConnection)
+                    else:
+                        subop.newResult.connect(self.addResult, Qt.DirectConnection)
 
-            subop.finished.connect(self.__onSubopFinish)
+                subop.finished.connect(self.__onSubopFinish)
 
-            subop.run(self.RUNMODE_THIS_THREAD)
+                subop.run(self.RUNMODE_THIS_THREAD)
 
     def __onSubopProgress(self, np):
         with self.lock:
@@ -595,7 +610,6 @@ class Operation(QObject, Lockable):
             self.setProgress(saved_state.progress + subop_progress_weight)
             self.setProgressText(saved_state.progressText)
 
-            # sd[5] -> finish_on_fail
             if finish_on_fail and subop.state.status == OperationState.FAILED:
                 self.finish()  # final state will be set to OperationState.FAILED as error messages
                                  # are directly written to operation
@@ -683,8 +697,8 @@ class WrapperOperation(Operation):
 
     RESULT_NAME = 'result'
 
-    def __init__(self, functor=None, title=''):
-        super().__init__(title)
+    def __init__(self, functor=None, title='', parent=None):
+        super().__init__(title, parent)
         self.__functor = functor
 
     def doWork(self):
@@ -700,8 +714,8 @@ class DelayOperation(Operation):
     of milliseconds and does nothing.
     """
 
-    def __init__(self, delay):
-        super().__init__('delay for {0} seconds'.format(delay))
+    def __init__(self, delay, parent=None):
+        super().__init__('delay for {0} seconds'.format(delay), parent)
         self.__delay = delay
 
     def doWork(self):
@@ -714,8 +728,8 @@ class _InlineOperation(Operation):
     protocol.
     """
 
-    def __init__(self, title):
-        super().__init__(title)
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
         self._manualScope = True
 
     def doWork(self):
@@ -728,3 +742,86 @@ class _InlineOperation(Operation):
         if t is not None:
             self.addMessage('exception: {0}'.format(t), logging.ERROR)
         self.finish()
+
+
+class OperationPool(QObject, Lockable):
+    def __init__(self):
+        from organica.utils.settings import globalSettings
+
+        QObject.__init__(self)
+        Lockable.__init__(self)
+        self.__running = []
+        self.__waiting = []
+        self.__limit = globalSettings()['pool_operations_limit'] or 10
+        self.__currentCount = 0
+
+    def addOperation(self, new_operation):
+        with self.lock:
+            with new_operation.lock:
+                new_operation.started.connect(self.__onOperationStarted)
+                new_operation.finished.connect(self.__onOperationFinished)
+
+                if new_operation.runMode == Operation.RUNMODE_THIS_THREAD:
+                    assert new_operation.state.isRunning
+                    self.__running.append(new_operation)
+                elif new_operation.runMode == Operation.RUNMODE_NEW_THREAD:
+                    if new_operation.state.isRunning:
+                        self.__currentCount += 1
+                        self.__running.append(new_operation)
+                    elif len(self.__running) >= self.__limit:
+                        self.__waiting.append(new_operation)
+                    else:
+                        self.__runOperation(new_operation)
+
+    @property
+    def operations(self):
+        with self.lock:
+            return self.__running + self.__waiting
+
+    def __onOperationStarted(self):
+        with self.lock:
+            operation = self.sender()
+            with operation.lock:
+                self.__waiting = [op for op in self.__waiting if op is not operation]
+                self.__running.append(operation)
+                if operation.runMode == Operation.RUNMODE_NEW_THREAD:
+                    self.__currentCount += 1
+
+    def __onOperationFinished(self, final_status):
+        with self.lock:
+            operation = self.sender()
+            with operation.lock:
+                old_len = len(self.__running)
+                self.__running = [op for op in self.__running if op is not operation]
+                if old_len > len(self.__running) and operation.runMode == Operation.RUNMODE_NEW_THREAD:
+                    self.__currentCount -= 1
+                    if self.__currentCount < self.__limit:
+                        # fetch another operation to start
+                        while self.__waiting:
+                            operation_to_start = self.__waiting[0]
+                            del self.__waiting[0]
+                            if operation_to_start is not None:
+                                assert operation_to_start.runMode == Operation.RUNMODE_NEW_THREAD
+                                assert not operation_to_start.state.isRunning
+                                self.__runOperation(operation_to_start)
+                                break
+
+    def __runOperation(self, operation):
+        with self.lock:
+            with operation.lock:
+                if operation.runMode == Operation.RUNMODE_THIS_THREAD:
+                    operation._work()
+                elif operation.runMode == Operation.RUNMODE_NEW_THREAD:
+                    Thread(target=operation._work).start()
+                    self.__currentCount += 1
+                self.__running.append(operation)
+
+
+_globalOperationPool = None
+
+
+def globalOperationPool():
+    global _globalOperationPool
+    if _globalOperationPool is None:
+        _globalOperationPool = OperationPool()
+    return _globalOperationPool
