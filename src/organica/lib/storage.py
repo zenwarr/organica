@@ -70,13 +70,19 @@ class LocalStorage(object):
         source_filename = removeLastSlash(source_filename)
 
         if os.path.isabs(target_path):
-            raise ValueError('invalid argument: target_path should be relative')
+            norm_root = os.path.normcase(os.path.normpath(self.rootDirectory))
+            norm_path = os.path.normcase(os.path.normpath(target_path))
+            if os.path.commonprefix((norm_root, norm_path)) != norm_root:
+                raise ValueError('invalid argument: target_path should be inside storage root directory')
 
         if not os.path.exists(source_filename):
             raise OSError('source file {0} not found'.format(source_filename))
 
         # get absolute path of destination file
-        absolute_dest_path = os.path.join(self.rootDirectory, target_path)
+        if not os.path.isabs(target_path):
+            absolute_dest_path = os.path.join(self.rootDirectory, target_path)
+        else:
+            absolute_dest_path = target_path
 
         # ensure that destination does not exists
         if os.path.exists(absolute_dest_path):

@@ -329,20 +329,19 @@ class NodeEditDialog(Dialog):
                     resources_to_move.append((node, tag))
 
         def moveResources(resources_to_move):
-            with globalOperationContext().currentOperation() as op:
-                progress_part = 100.0 / len(resources_to_move)
-                for node, tag in resources_to_move:
-                    source_filename = tag.value.locator.sourceUrl.toLocalFile()
-                    target_filename = tag.value.locator.localFilePath
-                    with globalOperationContext().newOperation('adding {0}'.format(source_filename),
-                                                               progress_weight=progress_part):
-                        if not tag.value.locator.sourceUrl.isLocalFile() or not tag.value.locator.isLocalFile:
-                            op.addMessage(tr('Storage supports only file source and target'), logging.ERROR)
-                            continue
-                        node.lib.storage.addFile(source_filename, target_filename)
+            progress_part = 100.0 / len(resources_to_move)
+            for node, tag in resources_to_move:
+                source_filename = tag.value.locator.sourceUrl.toLocalFile()
+                target_filename = tag.value.locator.localFilePath
+                with globalOperationContext().newOperation('adding {0}'.format(source_filename),
+                                                           progress_weight=progress_part):
+                    if not tag.value.locator.sourceUrl.isLocalFile() or not tag.value.locator.isLocalFile:
+                        globalOperationContext().currentOperation.addMessage(tr('Storage supports only file source and target'),
+                                                                             logging.ERROR)
+                        continue
+                    node.lib.storage.addFile(source_filename, target_filename)
 
-        move_operation = WrapperOperation(lambda: moveResources(resources_to_move))
-        globalOperationPool().addOperation(move_operation)
+        WrapperOperation(lambda: moveResources(resources_to_move)).run(WrapperOperation.RUNMODE_THIS_THREAD)
 
     @property
     def selectedNodes(self):

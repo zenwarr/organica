@@ -495,7 +495,7 @@ class Operation(QObject, Lockable):
 
         with self.lock:
             if self.state.isFinished:
-                raise OperationError('operation already finished')
+                raise OperationError('operation tried to output message after finish (message was: {0})'.format(message))
 
             self.state.messages.append((message, level))
             if level >= logging.ERROR:
