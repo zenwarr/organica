@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import sys
 import os
 
@@ -44,10 +46,10 @@ class Builder:
         return not os.path.exists(generated) or os.stat(source).st_mtime > os.stat(generated).st_mtime
 
 
-def build_project():
-    builder = Builder(os.path.join(os.path.dirname(__file__), 'organica'))
-    builder.build()
-
-
 if __name__ == '__main__':
-    build_project()
+    if len(sys.argv) != 2:
+        print('should get 1 argument: path to project directory')
+        sys.exit(1)
+
+    builder = Builder(sys.argv[1])
+    builder.build()

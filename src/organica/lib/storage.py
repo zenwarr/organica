@@ -14,8 +14,7 @@ class LocalStorage(object):
 
     def __init__(self):
         self.__rootDirectory = ''
-        self.__metas = {}
-        self.__config = dict()
+        self.__metas = dict()
 
     @staticmethod
     def fromDirectory(root_dir):
@@ -37,7 +36,7 @@ class LocalStorage(object):
                     logger.error('failed to read storage meta-information: invalid file format')
 
                 if config:
-                    stor.__config = config
+                    stor.__metas = config
 
         return stor
 
@@ -50,7 +49,7 @@ class LocalStorage(object):
         """
 
         with open(self.metafilePath, 'w+t') as f:
-            json.dump(self.__config, f, ensure_ascii=False, indent=4)
+            json.dump(self.__metas, f, ensure_ascii=False, indent=4)
 
     @property
     def rootDirectory(self):
@@ -152,16 +151,16 @@ class LocalStorage(object):
                 pass
 
     def getMeta(self, meta_name, default=None):
-        return self.__config.get(meta_name, default)
+        return self.__metas.get(meta_name, default)
 
     def setMeta(self, meta, value):
-        self.__config[meta] = value
+        self.__metas[meta] = value
 
     def removeMeta(self, meta_name):
-        self.__config = dict((key, self.__config[key]) for key in self.__config.keys() if meta_name != key)
+        self.__metas = dict((key, self.__metas[key]) for key in self.__metas.keys() if meta_name != key)
 
     def testMeta(self, meta_name):
-        return any((meta_name == key for key in self.__config.keys()))
+        return any((meta_name == key for key in self.__metas.keys()))
 
     def __eq__(self, other):
         if not isinstance(other, LocalStorage):

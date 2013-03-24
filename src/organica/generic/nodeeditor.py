@@ -1,5 +1,5 @@
 import copy
-from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex
+from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex, pyqtSignal
 from PyQt4.QtGui import QWidget, QTreeView, QToolButton, QHBoxLayout, QVBoxLayout, QDialog, QMessageBox, QLineEdit, \
                         QFormLayout, QDialogButtonBox, QComboBox, QSizePolicy, QCheckBox, QValidator, QLabel
 from organica.generic.extension import GENERIC_EXTENSION_UUID
@@ -18,6 +18,8 @@ class GenericNodeEditorProvider(object):
 
 
 class GenericNodeEditor(QWidget):
+    dataChanged = pyqtSignal()
+
     def __init__(self, lib, parent=None):
         QWidget.__init__(self, parent)
         self.lib = lib
@@ -51,7 +53,7 @@ class GenericNodeEditor(QWidget):
         self.tagTree.expandAll()
 
     def getModified(self, original_node):
-        node_tags = [tag for tag in original_node.allTags if tag not in self.originalCommonTags] + self.tagsModel.tags
+        node_tags = [copy.deepcopy(tag) for tag in original_node.allTags if tag not in self.originalCommonTags] + self.tagsModel.tags
         original_node.allTags = node_tags
         return original_node
 
@@ -68,10 +70,15 @@ class GenericNodeEditor(QWidget):
             new_index = self.tagsModel.addTag(dlg.tagClass, dlg.tagValue)
             if new_index is not None and new_index.isValid():
                 self.tagTree.setCurrentIndex(new_index)
+            self.dataChanged.emit()
 
     def removeTag(self):
         """Removes tag that is currently selected in tree"""
         self.tagsModel.remove(self.tagTree.currentIndex())
+        self.dataChanged.emit()
+
+    def __onDataChanged(self, top_left, bottom_right):
+        self.dataChanged.emit()
 
 
 class GenericTagsModel(QAbstractItemModel):

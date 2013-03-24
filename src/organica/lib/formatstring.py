@@ -480,3 +480,6 @@ class FormatString:
     @staticmethod
     def buildFromTokens(token_list):
         return _FormatStringParser.buildFromTokens(token_list)
+
+    def __len__(self):
+        return len(self.__template)

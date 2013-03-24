@@ -8,13 +8,14 @@ class Locator(object):
     MANAGED_FILES_SCHEME = 'storage'
 
     def __init__(self, url='', source_url=None):
+        self.__lib = None
+        self.__sourceUrl = source_url
         if isinstance(url, str) and url and (QUrl(url).scheme() in ('file', '')):
             self.__url = QUrl.fromLocalFile(url)
         else:
             self.__url = QUrl(url)
-        self.__lib = None
-        self.__sourceUrl = source_url
 
+    @property
     def lib(self):
         return self.__lib if self.isManagedFile else None
 
@@ -55,19 +56,19 @@ class Locator(object):
         return self.__url.toString()
 
     @staticmethod
-    def fromUrl(url, lib=None):
+    def fromUrl(url, lib=None, source_url=None):
         url = QUrl(url)
         if cicompare(url.scheme(), Locator.MANAGED_FILES_SCHEME):
-            return Locator.fromManagedFile(url.toLocalFile(), lib)
+            return Locator.fromManagedFile(url.path(), lib, source_url)
         else:
-            return Locator(url)
+            return Locator(url, source_url)
 
     @staticmethod
-    def fromLocalFile(path):
-        return Locator(QUrl.fromLocalFile(path))
+    def fromLocalFile(path, source_url=None):
+        return Locator(QUrl.fromLocalFile(path), source_url)
 
     @staticmethod
-    def fromManagedFile(path, lib):
+    def fromManagedFile(path, lib, source_url=None):
         if not os.path.isabs(path):
             # assume that directory already relative to storage root
             rel_path = path
@@ -76,7 +77,10 @@ class Locator(object):
         else:
             return None
 
-        loc = Locator(Locator.MANAGED_FILES_SCHEME + '://' + rel_path)
+        managed_file_url = QUrl()
+        managed_file_url.setScheme('storage')
+        managed_file_url.setPath(rel_path)
+        loc = Locator(managed_file_url, source_url)
         loc.__lib = lib
         return loc
 
@@ -93,12 +97,15 @@ class Locator(object):
 
     def __deepcopy__(self, memo):
         # it is impossible to deepcopy PyQt objects
-        cp = Locator(self.__url)
-        cp.__lib = self.__lib  # do not deepcopy librar
+        cp = Locator(self.__url, self.__sourceUrl)
+        cp.__lib = self.__lib  # do not deepcopy library
         return cp
 
     def __eq__(self, other):
-        return isinstance(other, Locator) and self.__url == other.__url
+        if not isinstance(other, Locator):
+            return NotImplemented
+
+        return self.__url == other.__url
 
     @property
     def sourceUrl(self):

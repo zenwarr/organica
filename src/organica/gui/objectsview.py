@@ -93,7 +93,6 @@ class ObjectsView(QWidget):
         else:
             url = locators[0].launchUrl
 
-        print(url.scheme())
         QDesktopServices.openUrl(url)
 
     def editSelected(self):
@@ -151,8 +150,6 @@ class ObjectsView(QWidget):
                 for node in nodes_to_remove:
                     locators += node.tags(TagQuery(valueType=TagValue.TYPE_LOCATOR))
                     files_to_remove += [loc for loc in locators if can_delete(loc)]
-
-                print(files_to_remove)
 
 
 class LocatorChooseDialog(Dialog):

@@ -2,7 +2,7 @@ import logging
 import os
 import copy
 
-from PyQt4.QtCore import Qt, QByteArray, QUrl
+from PyQt4.QtCore import Qt, QByteArray
 from PyQt4.QtGui import QDialog, QListView, QTabWidget, QDialogButtonBox, QStandardItemModel, \
                         QLineEdit, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel, QWidget, QStandardItem, QIcon
 
@@ -241,12 +241,17 @@ class NodeEditDialog(Dialog):
         # we should save changes old editor has made
         self.__save()
 
+        if self.__currentEditor is not None:
+            self.__currentEditor.dataChanged.disconnect(self.__onEditorDataChanged)
+
         if new_editor_index != -1:
             editor = self.tabsEditors.widget(new_editor_index)
             self.__currentEditor = editor
             if editor is not None and editor is not self.noEditorsLabel:
-                # we should save information old editor has changed
+                # we should save information old editor had changed
                 self.__load()
+
+                editor.dataChanged.connect(self.__onEditorDataChanged)
         else:
             self.__currentEditor = None
 
@@ -338,3 +343,30 @@ class NodeEditDialog(Dialog):
 
         move_operation = WrapperOperation(lambda: moveResources(resources_to_move))
         globalOperationPool().addOperation(move_operation)
+
+    @property
+    def selectedNodes(self):
+        return [index.data(Qt.UserRole) for index in self.__selectedIndexes]
+
+    def __onEditorDataChanged(self):
+        # when editor changes data, we should recalculate locators of affected nodes if ones
+        # are formatted with template.
+        from organica.lib.objects import TagValue
+        from organica.lib.formatstring import FormatString
+        from organica.lib.locator import Locator
+
+        self.__save()
+
+        changed = False
+        for node in self.selectedNodes:
+            if node.lib.storage is not None:
+                path_template = FormatString(node.lib.storage.getMeta('path_template'))
+                if path_template:
+                    for tag in (tag for tag in node.allTags if tag.valueType == TagValue.TYPE_LOCATOR):
+                        locator = tag.value.locator
+                        if locator.isManagedFile and locator.sourceUrl:
+                            tag.value = Locator.fromManagedFile(path_template.format(node), locator.lib, locator.sourceUrl)
+                            changed = True
+
+        if changed:
+            self.__load()

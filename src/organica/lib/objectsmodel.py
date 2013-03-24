@@ -28,7 +28,7 @@ class NodeLocatorColumn(object):
                 filename = removeLastSlash(choosen_locator.localFilePath)
                 return os.path.basename(filename)
             else:
-                return str(locator)
+                return str(choosen_locator)
         return None
 
     title = tr('Locator')

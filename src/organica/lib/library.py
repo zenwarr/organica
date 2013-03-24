@@ -1,8 +1,6 @@
 import os
-import sys
 import sqlite3
 import logging
-import uuid
 from copy import copy, deepcopy
 from threading import RLock
 
@@ -82,9 +80,6 @@ class Library(QObject, Lockable):
 
     classCreated = pyqtSignal(TagClass)
     classRemoved = pyqtSignal(TagClass)
-
-    resourceLinkCreated = pyqtSignal(Locator)
-    resourceLinkRemoved = pyqtSignal(Locator)
 
     def __init__(self):
         QObject.__init__(self)
@@ -585,8 +580,7 @@ class Library(QObject, Lockable):
                 raise TypeError('invalid arguments')
 
             with self.transaction() as c:
-                c.execute('insert into nodes(display_name) values (?)',
-                                (str(node.displayNameTemplate), ))
+                c.execute('insert into nodes(display_name) values (?)', (str(node.displayNameTemplate), ))
                 node.identity = Identity(self, c.lastrowid)
 
                 self._nodes[node.id] = deepcopy(node)
@@ -594,13 +588,12 @@ class Library(QObject, Lockable):
                 self.nodeCreated.emit(deepcopy(node))
 
                 # link given tags
-                if tags:
-                    for tag in tags:
-                        if isinstance(tag, tuple):
-                            tag = self.createTag(tag[0], tag[1])
-                        else:
-                            self.flushTag(tag)
-                        self.createLink(node, tag)
+                for tag in tags:
+                    if isinstance(tag, tuple):
+                        tag = self.createTag(tag[0], tag[1])
+                    else:
+                        self.flushTag(tag)
+                    self.createLink(node, tag)
 
             return node
 
@@ -685,9 +678,8 @@ class Library(QObject, Lockable):
         with self.lock:
             unmodified_node = self.node(node_to_flush)
             if not unmodified_node:
-                node_to_flush.identity = self.createNode(node_to_flush.displayNameTemplate,
-                                                         node_to_flush.allTags).identity
-                node_to_flush.setAllTags(self.node(node_to_flush).allTags)
+                node_to_flush.identity = self.createNode(node_to_flush.displayNameTemplate, node_to_flush.allTags).identity
+                node_to_flush.allTags = self.node(node_to_flush).allTags
             else:
                 with self.transaction() as c:
                     if node_to_flush.displayNameTemplate != unmodified_node.displayNameTemplate:
@@ -702,8 +694,8 @@ class Library(QObject, Lockable):
 
                     actual_tags = []
 
-                    unmodified_tags = unmodified_node.allTags
-                    node_to_flush_tags = node_to_flush.allTags
+                    unmodified_tags = deepcopy(unmodified_node.allTags)
+                    node_to_flush_tags = deepcopy(node_to_flush.allTags)
 
                     for tag in node_to_flush_tags:
                         if tag.isFlushed:
@@ -721,7 +713,7 @@ class Library(QObject, Lockable):
                         if tag not in node_to_flush_tags:
                             self.removeLink(node_to_flush, tag)
 
-                    node_to_flush.setAllTags(actual_tags)
+                    node_to_flush.allTags = actual_tags
 
             return node_to_flush
 
@@ -747,7 +739,7 @@ class Library(QObject, Lockable):
                 c.execute('insert into links(node_id, tag_id, tag_class_id) values (?, ?, ?)',
                           (node.id, tag.id, tag.tagClass.id))
 
-            node.setAllTags(node.allTags + [tag])
+            node.allTags = node.allTags + [tag]
             self._nodes[node.id] = node
 
             self.linkCreated.emit(deepcopy(node), deepcopy(tag))
@@ -774,7 +766,7 @@ class Library(QObject, Lockable):
                 c.execute('delete from links where node_id = ? and tag_id = ?',
                           (node.id, tag.id))
 
-            node.setAllTags([t for t in node.allTags if t.identity != tag.identity])
+            node.allTags = [t for t in node.allTags if t.identity != tag.identity]
             self._nodes[node.id] = node
 
             self.linkRemoved.emit(deepcopy(node), deepcopy(tag))
@@ -929,7 +921,7 @@ class Library(QObject, Lockable):
             self._storage = new_storage
 
             if self._storage is not None and self._storage.rootDirectory:
-                self.setMeta('storage_path', new_storage.rootDirectory)
+                self.setMeta('storage_path', self._storage.rootDirectory)
             else:
                 self.removeMeta('storage_path')
 

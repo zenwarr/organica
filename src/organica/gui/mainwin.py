@@ -12,7 +12,7 @@ from organica.gui.topicsview import TopicsView
 from organica.gui.objectsview import ObjectsView
 from organica.gui.actions import globalCommandManager, QMenuBarCommandContainer, QMenuCommandContainer, \
                         StandardStateValidator
-from organica.utils.helpers import tr
+from organica.utils.helpers import tr, removeLastSlash
 from organica.gui.aboutdialog import AboutDialog
 from organica.gui.profiles import ProfileManager
 from organica.lib.library import Library
@@ -167,36 +167,36 @@ class MainWindow(QMainWindow):
 
         newenv = None
 
-        # try:
-        newlib = Library.loadLibrary(filename)
+        try:
+            newlib = Library.loadLibrary(filename)
 
-        # try to load library
-        profile_uuid = newlib.getMeta('profile')
-        if not profile_uuid:
-            logger.warn('no profile associated with library {0}, falling back to generic'.format(filename))
-            profile = ProfileManager.genericProfile()
-        else:
-            profile = ProfileManager.getProfile(profile_uuid)
-            if profile is None:
-                logger.warn('no profile extension {0} installed for library {1}, falling back to generic' \
-                            .format(profile_uuid, filename))
+            # try to load library
+            profile_uuid = newlib.getMeta('profile')
+            if not profile_uuid:
+                logger.warn('no profile associated with library {0}, falling back to generic'.format(filename))
                 profile = ProfileManager.genericProfile()
+            else:
+                profile = ProfileManager.getProfile(profile_uuid)
+                if profile is None:
+                    logger.warn('no profile extension {0} installed for library {1}, falling back to generic' \
+                                .format(profile_uuid, filename))
+                    profile = ProfileManager.genericProfile()
 
-        if profile is None:
-            raise Exception('failed to load library {0}: cannot find profile to load it'.format(filename))
+            if profile is None:
+                raise Exception('failed to load library {0}: cannot find profile to load it'.format(filename))
 
-        newenv = LibraryEnvironment()
-        newenv.lib = newlib
-        newenv.profile = profile
-        newenv.ui = self.createUiForEnviron(newenv)
-        self.libTabWidget.addTab(newenv.ui, self.getTitleForEnviron(newenv))
+            newenv = LibraryEnvironment()
+            newenv.lib = newlib
+            newenv.profile = profile
+            newenv.ui = self.createUiForEnviron(newenv)
+            self.libTabWidget.addTab(newenv.ui, self.getTitleForEnviron(newenv))
 
-        self.workspace.append(newenv)
+            self.workspace.append(newenv)
 
-        if hasattr(newenv.profile, 'createProfileEnviron'):
-            newenv.profileEnviron = profile.createProfileEnviron(newenv)
-        # except Exception as err:
-        #     self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
+            if hasattr(newenv.profile, 'createProfileEnviron'):
+                newenv.profileEnviron = profile.createProfileEnviron(newenv)
+        except Exception as err:
+            self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
 
         if newenv is not None:
             self.activeEnviron = newenv
@@ -347,10 +347,13 @@ class MainWindow(QMainWindow):
 
                 locator_class = env.lib.tagClass('locator')
                 if locator_class:
-                    if env.lib.storage is not None:
-                        default_locator = Locator.fromManagedFile(FormatString(env.lib.storage.getMeta('path_template')) \
-                                    .format(node), QUrl.fromLocalFile(filename))
-                    else:
+                    default_locator = None
+                    if env.lib.storage is not None and env.lib.storage.getMeta('path_template'):
+                        formatted_path = FormatString(env.lib.storage.getMeta('path_template')).format(node)
+                        if not formatted_path:
+                            formatted_path = os.path.basename(removeLastSlash(filename))
+                        default_locator = Locator.fromManagedFile(formatted_path, env.lib, QUrl.fromLocalFile(filename))
+                    if not default_locator:
                         default_locator = Locator.fromLocalFile(filename)
 
                     node.link(Tag(env.lib.tagClass('locator'), default_locator))

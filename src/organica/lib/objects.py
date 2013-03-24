@@ -106,7 +106,7 @@ class TagValue(object):
                 TagValue.TYPE_TEXT: ('Text', 'text', (str, ), None, None),
                 TagValue.TYPE_NUMBER: ('Number', 'number', (int, float), None, None),
                 TagValue.TYPE_LOCATOR: ('Locator', 'locator', (Locator, ), (lambda l: l.databaseForm),
-                               (lambda c, d: Locator(d))),
+                               (lambda c, d: Locator.fromDatabaseForm(d, c.lib))),
                 TagValue.TYPE_NODE_REFERENCE: ('Node reference', 'nodeReference', (Identity, Node),
                                         (lambda obj: obj.id), dec_object)
             }
@@ -204,8 +204,7 @@ class TagValue(object):
         traits = TagValue._type_traits()[cTagClass.valueType]
         dbForm = traits[4](cTagClass, dbForm) if traits[4] else dbForm
         if type(dbForm) not in traits[2]:
-            raise TypeError('{0} expected for {1}, got {2}'.format(
-                            ' or '.join(traits[2])), traits[0], type(dbForm).__name__)
+            raise TypeError('{0} expected for {1}, got {2}'.format(' or '.join(traits[2])), traits[0], type(dbForm).__name__)
         return TagValue(dbForm, cTagClass.valueType)
 
     @staticmethod
@@ -514,18 +513,12 @@ class Node(LibraryObject):
         """
 
         self.ensureTagsFetched()
-        return deepcopy(self.__allTags)
+        return self.__allTags
 
     @allTags.setter
     def allTags(self, new_tags):
-        self.setAllTags(new_tags)
-
-    def setAllTags(self, value):
-        """Overrides list containing tags linked with given value. Value should be list of Tag objects.
-        """
-
         self.__tagsFetched = True
-        self.__allTags = deepcopy(value)
+        self.__allTags = deepcopy(new_tags)
 
     def tags(self, condition=None):
         """Get list of tags that satisfies given condition. See Tag.passes for details about condition.

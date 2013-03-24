@@ -86,7 +86,6 @@ class TagsModel(QAbstractItemModel, Lockable):
     def filters(self, new_filters):
         with self.lock:
             self.__filters = new_filters
-            print('new filter:\n' + self.query.debugRepr())
             self.__reset()
 
     def __reset(self):
