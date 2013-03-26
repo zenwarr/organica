@@ -329,15 +329,15 @@ class FormatString:
 
     """
 
-    custom_blocks = {
-        '@': (lambda obj, token: [obj.displayNameTemplate]),
-        '@name': (lambda obj, token: [obj.displayNameTemplate])
-    }
-
     __known_params = ['default', 'none', 'max', 'sort', 'separator',
                       'end', 'locator']
 
     def __init__(self, template=''):
+        self.custom_blocks = {
+            '@': (lambda obj, token: [obj.displayNameTemplate]),
+            '@name': (lambda obj, token: [obj.displayNameTemplate])
+        }
+
         if isinstance(template, FormatString):
             self.__template = template.template
         else:
@@ -367,18 +367,16 @@ class FormatString:
             self.__tokens = parser.tokens
             self.__parsed = True
 
-    @staticmethod
-    def registerCustomBlock(block_name, callback):
+    def registerCustomBlock(self, block_name, callback):
         if not block_name or block_name[0] != '@':
             raise TypeError('invalid block name {0}, should start with @'.format(block_name))
-        if block_name in FormatString.custom_blocks:
+        if block_name in self.custom_blocks:
             raise TypeError('custom block with same name already registered')
-        FormatString.custom_blocks[block_name] = callback
+        self.custom_blocks[block_name] = callback
 
-    @staticmethod
-    def unregisterCustomBlock(block_name):
-        if block_name in FormatString.custom_blocks:
-            del FormatString.custom_blocks[block_name]
+    def unregisterCustomBlock(self, block_name):
+        if block_name in self.custom_blocks:
+            del self.custom_blocks[block_name]
 
     def __tagValue(self, tag_value, block):
         from organica.lib.objects import TagValue

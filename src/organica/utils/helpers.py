@@ -50,3 +50,9 @@ def removeLastSlash(filename):
         return filename
     else:
         return filename[:-1]
+
+
+def setWidgetTabOrder(widget, chain):
+    if len(chain) >= 2:
+        for widget_index in range(1, len(chain)):
+            widget.setTabOrder(chain[widget_index - 1], chain[widget_index])

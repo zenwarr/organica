@@ -349,10 +349,8 @@ class MainWindow(QMainWindow):
                 if locator_class:
                     default_locator = None
                     if env.lib.storage is not None and env.lib.storage.getMeta('path_template'):
-                        formatted_path = FormatString(env.lib.storage.getMeta('path_template')).format(node)
-                        if not formatted_path:
-                            formatted_path = os.path.basename(removeLastSlash(filename))
-                        default_locator = Locator.fromManagedFile(formatted_path, env.lib, QUrl.fromLocalFile(filename))
+                        default_locator = Locator.fromManagedFile(env.lib.storage.getStoragePath(filename, node),
+                                                                  env.lib, QUrl.fromLocalFile(filename))
                     if not default_locator:
                         default_locator = Locator.fromLocalFile(filename)
 

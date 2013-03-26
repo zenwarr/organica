@@ -341,7 +341,8 @@ class NodeEditDialog(Dialog):
                         continue
                     node.lib.storage.addFile(source_filename, target_filename)
 
-        WrapperOperation(lambda: moveResources(resources_to_move)).run(WrapperOperation.RUNMODE_THIS_THREAD)
+        if resources_to_move:
+            WrapperOperation(lambda: moveResources(resources_to_move)).run(WrapperOperation.RUNMODE_THIS_THREAD)
 
     @property
     def selectedNodes(self):
@@ -364,7 +365,8 @@ class NodeEditDialog(Dialog):
                     for tag in (tag for tag in node.allTags if tag.valueType == TagValue.TYPE_LOCATOR):
                         locator = tag.value.locator
                         if locator.isManagedFile and locator.sourceUrl:
-                            tag.value = Locator.fromManagedFile(path_template.format(node), locator.lib, locator.sourceUrl)
+                            resolved_path = locator.resolveLocalFilePath(node)
+                            tag.value = Locator.fromManagedFile(resolved_path, locator.lib, locator.sourceUrl)
                             changed = True
 
         if changed:

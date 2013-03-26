@@ -53,6 +53,8 @@ class Locator(object):
         return str(self)
 
     def __str__(self):
+        if self.__url.isLocalFile():
+            return self.__url.toLocalFile()
         return self.__url.toString()
 
     @staticmethod
@@ -110,3 +112,9 @@ class Locator(object):
     @property
     def sourceUrl(self):
         return self.__sourceUrl
+
+    def resolveLocalFilePath(self, node):
+        if not self.isManagedFile or node.lib.storage is None:
+            return self.localFilePath
+        else:
+            return node.lib.storage.getStoragePath(self.sourceUrl.toString(), node)

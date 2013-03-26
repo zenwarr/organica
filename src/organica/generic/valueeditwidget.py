@@ -1,9 +1,10 @@
-from PyQt4.QtCore import Qt, pyqtSignal
-from PyQt4.QtGui import QWidget, QVBoxLayout, QSpinBox, QLineEdit, QComboBox
+from PyQt4.QtCore import Qt, pyqtSignal, QUrl
+from PyQt4.QtGui import QWidget, QVBoxLayout, QSpinBox, QLineEdit, QComboBox, QCheckBox
 from organica.lib.objects import TagValue
 from organica.lib.objectsmodel import ObjectsModel
 from organica.gui.patheditwidget import PathEditWidget
 from organica.lib.locator import Locator
+from organica.utils.helpers import tr
 
 
 class ValueEditWidget(QWidget):
@@ -45,7 +46,10 @@ class ValueEditWidget(QWidget):
             if self.__editWidget is not None:
                 self.__editWidget.tagValueChanged.disconnect(self.valueChanged)
                 self.wlayout.removeWidget(self.__editWidget)
+                self.__editWidget.hide()
                 self.__editWidget.deleteLater()
+
+            self.__editWidget = None
 
             # find widget class for this value type
             widget_class = self._types_data[new_value.valueType] if new_value.valueType in self._types_data else None
@@ -55,6 +59,7 @@ class ValueEditWidget(QWidget):
                 self.wlayout.addWidget(self.__editWidget)
                 self.__valueType = new_value.valueType
                 self.__editWidget.value = new_value
+                self.setFocusProxy(self.__editWidget)
 
     @property
     def valueType(self):
@@ -131,20 +136,52 @@ class NodeReferenceEditor(QComboBox):
             self.setCurrentIndex(node_index)
 
 
-class UrlEditor(PathEditWidget):
+class UrlEditor(QWidget):
     tagValueChanged = pyqtSignal(TagValue)
 
     def __init__(self, parent, lib):
-        PathEditWidget.__init__(self, parent)
-        self.pathChanged.connect(lambda x: self.tagValueChanged.emit(TagValue(Locator(x))))
+        QWidget.__init__(self, parent)
+        self.lib = lib
+
+        self.pathEditWidget = PathEditWidget(self)
+        self.pathEditWidget.pathChanged.connect(self.__onPathChanged)
+        self.chkCopyToStorage = QCheckBox(tr('Copy to local storage'), self)
+        self.chkCopyToStorage.setVisible(lib is not None and lib.storage is not None)
+
+        self.m_layout = QVBoxLayout(self)
+        self.m_layout.setContentsMargins(0, 0, 0, 0)
+        self.m_layout.addWidget(self.pathEditWidget)
+        self.m_layout.addWidget(self.chkCopyToStorage)
 
     @property
     def value(self):
-        return TagValue(Locator(self.path), TagValue.TYPE_LOCATOR)
+        if self.chkCopyToStorage.isChecked():
+            return TagValue(Locator.fromManagedFile('', self.lib, self.__pathToLocator(self.pathEditWidget.path).url))
+        else:
+            return TagValue(self.__pathToLocator(self.pathEditWidget.path))
 
     @value.setter
     def value(self, new_value):
-        self.path = new_value.locator.url.toString()
+        self.chkCopyToStorage.setChecked(bool(new_value.locator.isManagedFile and new_value.locator.sourceUrl))
+        self.pathEditWidget.path = self.__locatorToPath(new_value.locator)
+
+    def __onPathChanged(self, new_path):
+        locator = self.__pathToLocator(new_path)
+        self.chkCopyToStorage.setEnabled(locator.isLocalFile and not locator.isManagedFile)
+        self.tagValueChanged.emit(TagValue(locator))
+
+    def __pathToLocator(self, path):
+        """Converts value from PathEditWidget (which can be not local file path, but an url) to Locator"""
+        if not path:
+            return Locator()
+        elif QUrl(path).scheme() in ('file', ''):
+            return Locator.fromLocalFile(path)
+        else:
+            return Locator.fromUrl(path, self.lib)
+
+    def __locatorToPath(self, locator):
+        """Converts Locator to string suitable for PathEditWidget"""
+        return locator.localFilePath if locator.isLocalFile else locator.url.toString()
 
 
 class TextEditor(QLineEdit):

@@ -4,7 +4,7 @@ from PyQt4.QtGui import QWidget, QTreeView, QToolButton, QHBoxLayout, QVBoxLayou
                         QFormLayout, QDialogButtonBox, QComboBox, QSizePolicy, QCheckBox, QValidator, QLabel
 from organica.generic.extension import GENERIC_EXTENSION_UUID
 from organica.lib.objects import Node, Tag, TagValue
-from organica.utils.helpers import cicompare, tr
+from organica.utils.helpers import cicompare, tr, setWidgetTabOrder
 from organica.gui.dialog import Dialog
 from organica.lib.tagclassesmodel import TagClassesModel
 
@@ -54,8 +54,9 @@ class GenericNodeEditor(QWidget):
 
     def getModified(self, original_node):
         node_tags = [copy.deepcopy(tag) for tag in original_node.allTags if tag not in self.originalCommonTags] + self.tagsModel.tags
-        original_node.allTags = node_tags
-        return original_node
+        node = copy.deepcopy(original_node)
+        node.allTags = node_tags
+        return node
 
     def reset(self):
         self.tagsModel.load([])
@@ -316,6 +317,9 @@ class AddTagDialog(Dialog):
         layout = QVBoxLayout(self)
         layout.addLayout(formLayout)
         layout.addWidget(self.buttonBox)
+
+        setWidgetTabOrder(self, (self.valueEdit, self.classNameCombo, self.addClassButton, self.buttonBox))
+        self.valueEdit.setFocus(Qt.OtherFocusReason)
 
     @property
     def tagClass(self):

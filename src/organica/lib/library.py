@@ -588,12 +588,13 @@ class Library(QObject, Lockable):
                 self.nodeCreated.emit(deepcopy(node))
 
                 # link given tags
-                for tag in tags:
-                    if isinstance(tag, tuple):
-                        tag = self.createTag(tag[0], tag[1])
-                    else:
-                        self.flushTag(tag)
-                    self.createLink(node, tag)
+                if tags:
+                    for tag in tags:
+                        if isinstance(tag, tuple):
+                            tag = self.createTag(tag[0], tag[1])
+                        else:
+                            self.flushTag(tag)
+                        self.createLink(node, tag)
 
             return node
 
@@ -731,8 +732,7 @@ class Library(QObject, Lockable):
 
             node = self.node(node)
             if node.testTag(tag):
-                raise LibraryError('link between node #{0} and tag #{1} already exists' \
-                                   .format(node.id, tag.id))
+                raise LibraryError('link between node #{0} and tag #{1} already exists'.format(node.id, tag.id))
             node.ensureTagsFetched()
 
             with self.transaction() as c:
