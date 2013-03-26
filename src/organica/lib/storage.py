@@ -161,9 +161,11 @@ class LocalStorage(object):
 
     def setMeta(self, meta, value):
         self.__metas[meta] = value
+        self.saveMetafile()
 
     def removeMeta(self, meta_name):
         self.__metas = dict((key, self.__metas[key]) for key in self.__metas.keys() if meta_name != key)
+        self.saveMetafile()
 
     def testMeta(self, meta_name):
         return any((meta_name == key for key in self.__metas.keys()))
@@ -185,7 +187,7 @@ class LocalStorage(object):
         from organica.lib.formatstring import FormatString
         import organica.utils.helpers as helpers
 
-        path_template = self.getMeta('path_template')
+        path_template = self.pathTemplate
         if path_template:
             fs = FormatString(path_template)
             fs.registerCustomBlock('@source', (lambda node, token: helpers.removeLastSlash(source_path)))
@@ -193,3 +195,11 @@ class LocalStorage(object):
             if formatted:
                 return formatted
         return os.path.basename(helpers.removeLastSlash(source_path))
+
+    @property
+    def pathTemplate(self):
+        return self.getMeta('path_template')
+
+    @pathTemplate.setter
+    def pathTemplate(self, new_value):
+        self.setMeta('path_template', new_value)

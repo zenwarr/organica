@@ -5,7 +5,7 @@ from PyQt4.QtGui import QWizard, QWizardPage, QLineEdit, QFormLayout, QLabel, \
 from PyQt4.QtCore import QFileInfo, pyqtProperty
 
 from organica.utils.helpers import tr
-from organica.gui.profiles import ProfileManager
+from organica.gui.profiles import getProfile
 from organica.gui.profilesmodel import ProfilesModel
 from organica.lib.library import Library
 from organica.gui.patheditwidget import PathEditWidget
@@ -40,7 +40,7 @@ class CreateLibraryWizard(QWizard):
 
         if self.field('use_storage'):
             storage = LocalStorage.fromDirectory(self.field('storage_path'))
-            storage.setMeta('path_template', self.field('path_template'))
+            storage.pathTemplate = self.field('path_template')
             try:
                 storage.saveMetafile()
             except Exception as err:
@@ -91,7 +91,7 @@ class ProfilePage(QWizardPage):
         self.profileList.setModel(self.profilesModel)
 
         # let generic profile be selected by default
-        generic_profile = ProfileManager.genericProfile()
+        generic_profile = genericProfile()
         if generic_profile is not None:
             self.profileList.setCurrentIndex(self.profilesModel.profileIndex(generic_profile))
 

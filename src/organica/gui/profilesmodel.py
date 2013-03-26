@@ -1,7 +1,7 @@
 from PyQt4.QtGui import QStandardItemModel, QStandardItem
-from PyQt4.QtCore import Qt
-
+from PyQt4.QtCore import Qt, QModelIndex
 from organica.utils.extend import globalObjectPool
+from organica.utils.helpers import tr
 
 
 class ProfilesModel(QStandardItemModel):
@@ -12,6 +12,9 @@ class ProfilesModel(QStandardItemModel):
         QStandardItemModel.__init__(self)
 
         self.setColumnCount(1)
+
+        if show_default:
+            self.appendRow(QStandardItem(tr('Default profile')))
 
         with globalObjectPool().lock:
             all_profiles = globalObjectPool().objects(group='profile')
@@ -29,6 +32,8 @@ class ProfilesModel(QStandardItemModel):
         if hasattr(profile, 'description'):
             item.setToolTip(profile.description)
         item.setData(profile, self.ProfileRole)
+        if hasattr(profile, 'uuid'):
+            item.setData(profile.uuid, self.ProfileUuidRole)
         return item
 
     def __objectAdded(self, new_object):
@@ -49,6 +54,7 @@ class ProfilesModel(QStandardItemModel):
             else:
                 if self.index(row_index, 0).data(self.ProfileRole) is profile:
                     return self.index(row_index, 0)
+        return QModelIndex()
 
     def addUnknownProfile(self, profile_uuid, profile_name=None):
         if not self.profileIndex(profile_uuid).isValid():

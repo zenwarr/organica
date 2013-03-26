@@ -21,6 +21,14 @@ class LibraryError(Exception):
     pass
 
 
+class LibraryStatistics(object):
+    def __init__(self):
+        self.classesCount = 0
+        self.tagsCount = 0
+        self.nodesCount = 0
+        self.databaseSize = 0
+
+
 class Library(QObject, Lockable):
     class Cursor(object):
         def __init__(self, lib):
@@ -242,7 +250,8 @@ class Library(QObject, Lockable):
         """
 
         meta_name = meta_name.lower()
-        meta_value = str(meta_value)
+        if meta_value is not None:
+            meta_value = str(meta_value)
         with self.lock:
             if not isCorrectIdent(meta_name):
                 raise LibraryError('invalid meta name {0}'.format(meta_name))
@@ -250,11 +259,9 @@ class Library(QObject, Lockable):
             with self.transaction() as c:
                 if meta_name in self._meta:
                     if meta_value != self._meta[meta_name]:
-                        c.execute('update organica_meta set value = ? where name = ?',
-                                (meta_value, meta_name))
+                        c.execute('update organica_meta set value = ? where name = ?', (meta_value, meta_name))
                 else:
-                    c.execute('insert into organica_meta(name, value) values(?, ?)',
-                                (meta_name, meta_value))
+                    c.execute('insert into organica_meta(name, value) values(?, ?)', (meta_name, meta_value))
                 self._meta[meta_name] = meta_value
                 self.metaChanged.emit(copy(self._meta))
 
@@ -933,3 +940,29 @@ class Library(QObject, Lockable):
     @profileUuid.setter
     def profileUuid(self, new_uuid):
         self.setMeta('profile', new_uuid)
+
+    @property
+    def tagsAutoDeleted(self):
+        return self.getMeta('auto_delete_tags', True)
+
+    @tagsAutoDeleted.setter
+    def tagsAutoDeleted(self, new_value):
+        with self.lock:
+            if self.tagsAutoDeleted != new_value:
+                self.setMeta('auto_delete_tags', new_value)
+
+    def calculateStatistics(self):
+        stat = LibraryStatistics()
+        with self.lock:
+            with self.cursor() as c:
+                c.execute('select count(*) from tag_classes')
+                stat.classesCount = c.fetchone()[0]
+
+                c.execute('select count(*) from tags')
+                stat.tagsCount = c.fetchone()[0]
+
+                c.execute('select count(*) from nodes')
+                stat.nodesCount = c.fetchone()[0]
+
+                stat.databaseSize = os.stat(self.databaseFilename).st_size
+        return stat

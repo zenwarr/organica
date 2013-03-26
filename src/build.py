@@ -15,7 +15,7 @@ class Builder:
             self.rcc_path = os.path.join(self.pyqt4_path, 'pyrcc4')
             self.lrelease_path = os.path.join(self.pyqt4_path, 'lrelease')
         else:
-            self.uic_path = 'pyuuic4'
+            self.uic_path = 'pyuic4'
             self.rcc_path = 'pyrcc4'
             self.lrelease_path = 'lrelease'
 

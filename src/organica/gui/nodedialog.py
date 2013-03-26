@@ -360,7 +360,7 @@ class NodeEditDialog(Dialog):
         changed = False
         for node in self.selectedNodes:
             if node.lib.storage is not None:
-                path_template = FormatString(node.lib.storage.getMeta('path_template'))
+                path_template = FormatString(node.lib.storage.pathTemplate)
                 if path_template:
                     for tag in (tag for tag in node.allTags if tag.valueType == TagValue.TYPE_LOCATOR):
                         locator = tag.value.locator

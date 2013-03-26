@@ -695,7 +695,7 @@ class WrapperOperation(Operation):
     is accessible in results dict under 'result' name.
     """
 
-    RESULT_NAME = 'result'
+    ResultName = 'result'
 
     def __init__(self, functor=None, title='', parent=None):
         super().__init__(title, parent)
@@ -704,7 +704,7 @@ class WrapperOperation(Operation):
     def doWork(self):
         try:
             if self.__functor is not None:
-                self.addResult(self.RESULT_NAME, self.__functor())
+                self.addResult(self.ResultName, self.__functor())
         finally:
             self.finish()
 

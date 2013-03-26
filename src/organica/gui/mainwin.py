@@ -14,7 +14,7 @@ from organica.gui.actions import globalCommandManager, QMenuBarCommandContainer,
                         StandardStateValidator
 from organica.utils.helpers import tr, removeLastSlash
 from organica.gui.aboutdialog import AboutDialog
-from organica.gui.profiles import ProfileManager
+from organica.gui.profiles import getProfile, genericProfile
 from organica.lib.library import Library
 from organica.gui.createlibrarywizard import CreateLibraryWizard
 from organica.lib.storage import LocalStorage
@@ -65,6 +65,8 @@ class MainWindow(QMainWindow):
                                              default_shortcut='Ctrl+O')
         cm.addNewCommand(self.addDir, 'Library.AddDirectory', tr('Add directory'), validator='LibraryActive')
         cm.addNewCommand(self.showLibraryDatabase, 'Library.ShowDatabase', tr('Show database'), validator='LibraryActive')
+        cm.addNewCommand(self.showLibraryProperties, 'Library.ShowProperties', tr('Library properties...'),
+                         validator='LibraryActive')
         cm.addNewCommand(self.close, 'Application.Exit', tr('Exit'))
         cm.addNewCommand(self.showAbout, 'Application.ShowAbout', tr('About...'))
 
@@ -88,6 +90,8 @@ class MainWindow(QMainWindow):
         self.libraryMenu.appendSeparator()
         self.libraryMenu.appendCommand('Library.AddFiles')
         self.libraryMenu.appendCommand('Library.AddDirectory')
+        self.libraryMenu.appendSeparator()
+        self.libraryMenu.appendCommand('Library.ShowProperties')
         self.menuBarContainer.appendContainer(self.libraryMenu)
 
         self.helpMenu = QMenuCommandContainer('Help', tr('Help'), self)
@@ -174,13 +178,13 @@ class MainWindow(QMainWindow):
             profile_uuid = newlib.getMeta('profile')
             if not profile_uuid:
                 logger.warn('no profile associated with library {0}, falling back to generic'.format(filename))
-                profile = ProfileManager.genericProfile()
+                profile = genericProfile()
             else:
-                profile = ProfileManager.getProfile(profile_uuid)
+                profile = getProfile(profile_uuid)
                 if profile is None:
                     logger.warn('no profile extension {0} installed for library {1}, falling back to generic' \
                                 .format(profile_uuid, filename))
-                    profile = ProfileManager.genericProfile()
+                    profile = genericProfile()
 
             if profile is None:
                 raise Exception('failed to load library {0}: cannot find profile to load it'.format(filename))
@@ -348,7 +352,7 @@ class MainWindow(QMainWindow):
                 locator_class = env.lib.tagClass('locator')
                 if locator_class:
                     default_locator = None
-                    if env.lib.storage is not None and env.lib.storage.getMeta('path_template'):
+                    if env.lib.storage is not None and env.lib.storage.pathTemplate:
                         default_locator = Locator.fromManagedFile(env.lib.storage.getStoragePath(filename, node),
                                                                   env.lib, QUrl.fromLocalFile(filename))
                     if not default_locator:
@@ -389,6 +393,18 @@ class MainWindow(QMainWindow):
         topic_filter = NodeQuery(tags=TagQuery(identity=new_tag_ident)) if new_tag_ident is not None else NodeQuery()
         topic_filter.hint = self.objectsViewFilterHint
         objects_model.filters = replaceInFilters(objects_model.filters, self.objectsViewFilterHint, topic_filter)
+
+    def showLibraryProperties(self):
+        from organica.gui.librarypropertiesdialog import LibraryPropertiesDialog
+
+        env = self.activeEnviron
+        if env is not None:
+            dialog = LibraryPropertiesDialog(self, env.lib)
+            if dialog.exec_() == LibraryPropertiesDialog.Accepted:
+                # library parameters can be changed - update it
+                lib_filename = env.lib.databaseFilename
+                self.closeEnviron(env)
+                self.loadLibraryFromFile(lib_filename)
 
 
 _mainWindow = None

@@ -56,3 +56,22 @@ def setWidgetTabOrder(widget, chain):
     if len(chain) >= 2:
         for widget_index in range(1, len(chain)):
             widget.setTabOrder(chain[widget_index - 1], chain[widget_index])
+
+
+_q = (
+    ('Tb', 1024 * 1024 * 1024 * 1024),
+    ('Gb', 1024 * 1024 * 1024),
+    ('Mb', 1024 * 1024),
+    ('Kb', 1024)
+)
+
+
+def formatSize(size):
+    for q in _q:
+        if size >= q[1]:
+            size = size / q[1]
+            postfix = q[0]
+            break
+    else:
+        postfix = 'b'
+    return '{0} {1}'.format(round(size, 2), postfix)
