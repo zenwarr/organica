@@ -67,95 +67,11 @@ class LocalStorage(object):
         if not self.rootDirectory:
             raise ValueError('no root directory for storage')
 
-        target_path = removeLastSlash(target_path)
-        source_filename = removeLastSlash(source_filename)
-
-        if os.path.isabs(target_path):
-            norm_root = os.path.normcase(os.path.normpath(self.rootDirectory))
-            norm_path = os.path.normcase(os.path.normpath(target_path))
-            if os.path.commonprefix((norm_root, norm_path)) != norm_root:
-                raise ValueError('invalid argument: target_path should be inside storage root directory')
-
-        if not os.path.exists(source_filename):
-            raise OSError('source file {0} not found'.format(source_filename))
-
         # get absolute path of destination file
         if not os.path.isabs(target_path):
-            absolute_dest_path = os.path.join(self.rootDirectory, target_path)
-        else:
-            absolute_dest_path = target_path
+            target_path = os.path.join(self.rootDirectory, target_path)
 
-        # ensure that destination does not exists
-        if os.path.exists(absolute_dest_path):
-            raise OSError('destination {0} already exists'.format(absolute_dest_path))
-
-        # ensure destination parent directories are created. If not, create ones
-        if not os.path.exists(os.path.dirname(absolute_dest_path)):
-            os.makedirs(os.path.dirname(absolute_dest_path), exist_ok=True)
-
-        # if source is a link, do not resolve it, but just create new one in target directory and return
-        if os.path.islink(source_filename):
-            link_target = os.readlink(source_filename)
-            # resolve relative links depending on link directory
-            if not os.path.isabs(link_target):
-                link_target = os.path.join(os.path.dirname(source_filename), link_target)
-            os.symlink(link_target, absolute_dest_path)
-            return
-
-        # create new operation and execute work in its context
-        source_basename = os.path.basename(source_filename)
-        with globalOperationContext().newOperation('copying {0}'.format(source_basename)) as operation:
-            def do_add(src_path, dest_path, remove_source, progress_increment):
-                import shutil
-
-                if os.path.isdir(src_path):
-                    try:
-                        os.mkdir(dest_path)
-                    except Exception as err:
-                        errmsg = 'failed to create directory {0}: {1}'.format(dest_path, err)
-                        if not operation.processError(errmsg):
-                            raise
-
-                    # iterate over all files in source directory and copy it to dest
-                    names = os.listdir(src_path)
-                    for name in names:
-                        src_filename = os.path.join(src_path, name)
-                        do_add(src_filename, os.path.join(dest_path, name), remove_source, progress_increment)
-
-                    try:
-                        shutil.copystat(src_path, dest_path)
-
-                        if remove_source:
-                            os.rmdir(src_path)
-                    except Exception as err:
-                        errmsg = 'error while copying {0}: {1}'.format(source_basename, err)
-                        if not operation.processError(errmsg):
-                            raise
-                else:
-                    operation.setProgressText(tr('Copying {0}'.format(os.path.basename(src_path))))
-
-                    try:
-                        if remove_source:
-                            shutil.move(src_path, dest_path)
-                        else:
-                            shutil.copy2(src_path, dest_path)
-                    except Exception as err:
-                        errmsg = 'failed to copy file {0}: {1}'.format(src_path, err)
-                        if not operation.processError(errmsg):
-                            raise
-
-                    operation.setProgress(operation.state.progress + progress_increment)
-
-            # count all files we should copy to provide correct progress values
-            if os.path.isdir(source_filename):
-                files_count = sum([len(e[2]) for e in os.walk(source_filename)])
-            else:
-                files_count = 1
-
-            try:
-                do_add(source_filename, absolute_dest_path, remove_source, 100 / files_count)
-            except Exception as err:
-                pass
+        copyFile(source_filename, target_path, remove_source=remove_source)
 
     def getMeta(self, meta_name, default=None):
         return self.__metas.get(meta_name, default)
