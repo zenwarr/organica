@@ -174,6 +174,12 @@ class OperationContext(Lockable):
                 else:
                     self.__operations[tid].pop()
 
+    def requestGuiCallback(self, callback, **callback_args):
+        if self.currentOperation is not None:
+            return self.currentOperation.requestGuiCallback(callback, **callback_args)
+        else:
+            return True, callback(**callback_args)
+
 
 _globalOperationContext = None
 

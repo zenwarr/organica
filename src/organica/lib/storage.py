@@ -4,13 +4,14 @@ import logging
 
 from organica.utils.operations import globalOperationContext
 from organica.utils.helpers import tr, readJsonFile, removeLastSlash
+from organica.utils.fileop import copyFile, removeFile, isSameFile
 
 
 logger = logging.getLogger(__name__)
 
 
 class LocalStorage(object):
-    STORAGE_METADATA_FILENAME = 'meta.storage'
+    MetadataFilename = 'meta.storage'
 
     def __init__(self):
         self.__rootDirectory = ''
@@ -42,7 +43,7 @@ class LocalStorage(object):
 
     @property
     def metafilePath(self):
-        return os.path.join(self.rootDirectory, self.STORAGE_METADATA_FILENAME)
+        return os.path.join(self.rootDirectory, self.MetadataFilename)
 
     def saveMetafile(self):
         """Writes meta into metafile. All existing information in metafile will be overwritten.
@@ -174,14 +175,14 @@ class LocalStorage(object):
         if not isinstance(other, LocalStorage):
             return NotImplemented
 
-        return os.path.samefile(self.rootDirectory, other.rootDirectory)
+        return isSameFile(self.rootDirectory, other.rootDirectory)
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
     @staticmethod
     def isDirectoryStorage(path):
-        return os.path.exists(path) and os.path.exists(os.path.join(path, LocalStorage.STORAGE_METADATA_FILENAME))
+        return os.path.exists(path) and os.path.exists(os.path.join(path, LocalStorage.MetadataFilename))
 
     def getStoragePath(self, source_path, node):
         from organica.lib.formatstring import FormatString
@@ -203,3 +204,16 @@ class LocalStorage(object):
     @pathTemplate.setter
     def pathTemplate(self, new_value):
         self.setMeta('path_template', new_value)
+
+    def removeAllFiles(self):
+        metafile_path = self.metafilePath
+        removeFile(self.rootDirectory, remove_root_dir=False, predicate=(lambda path: not isSameFile(path, metafile_path)))
+
+    def copySettingsFrom(self, other):
+        self.__metas = other.__metas
+        self.saveMetafile()
+
+    def importFilesFrom(self, other, remove_source):
+        metafile_path = other.metafilePath
+        copyFile(other.rootDirectory, self.rootDirectory, remove_source=remove_source, remove_root_dir=False,
+                 predicate=(lambda path: not isSameFile(path, metafile_path)))

@@ -9,6 +9,9 @@ class Dialog(QDialog):
     def __init__(self, parent=None, name=''):
         QDialog.__init__(self, parent)
         self.name = name
+        self.loadGeometry()
+
+    def loadGeometry(self):
         if self.name:
             qs = globalQuickSettings()
             saved_geom = qs[self.name + '_geometry']

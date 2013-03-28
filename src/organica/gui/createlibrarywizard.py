@@ -5,7 +5,7 @@ from PyQt4.QtGui import QWizard, QWizardPage, QLineEdit, QFormLayout, QLabel, \
 from PyQt4.QtCore import QFileInfo, pyqtProperty
 
 from organica.utils.helpers import tr
-from organica.gui.profiles import getProfile
+from organica.gui.profiles import getProfile, genericProfile
 from organica.gui.profilesmodel import ProfilesModel
 from organica.lib.library import Library
 from organica.gui.patheditwidget import PathEditWidget
