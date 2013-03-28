@@ -278,7 +278,7 @@ class NodeEditDialog(Dialog):
         """
         self.__nodesLoaded = False
         self.__selectedIndexes = self.nodeList.selectedIndexes()
-        nodes = [index.data(Qt.UserRole) for index in self.__selectedIndexes]
+        nodes = self.selectedNodes
 
         self.txtDisplayName.clear()
 
@@ -346,7 +346,7 @@ class NodeEditDialog(Dialog):
 
     @property
     def selectedNodes(self):
-        return [index.data(Qt.UserRole) for index in self.__selectedIndexes]
+        return [self.__nodes[index.row()] for index in self.__selectedIndexes]
 
     def __onEditorDataChanged(self):
         # when editor changes data, we should recalculate locators of affected nodes if ones

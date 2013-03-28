@@ -260,6 +260,8 @@ class GenericTagsModel(QAbstractItemModel):
         self.beginInsertRows(self.createIndex(group_index, 0, self._TOPLEVEL_GROUP_INDEX), len(group.tags), len(group.tags))
         group.tags.append(Tag(tag_class, tag_value))
         self.endInsertRows()
+        new_row_index = len(group.tags) - 1
+        return self.createIndex(new_row_index, 0, group_index)
 
     def remove(self, index):
         if not index or not index.isValid():
