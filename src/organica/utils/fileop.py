@@ -101,10 +101,19 @@ def _do_copy(source_path, dest_path, remove_source, predicate, progress_incremen
             op.addMessage(tr('fail while copying directory {0}: {1}').format(source_path, err), logging.WARNING)
     else:
         if os.path.exists(dest_path):
-            ans = _ask_resolve(tr('file {0} already exists. Replace it with another file?').format(dest_path),
-                               QMessageBox.Yes|QMessageBox.No)
+            if os.path.isfile(dest_path):
+                msg = tr('file {0} already exists. Replace it with another file?').format(dest_path)
+            else:
+                has_files = bool(os.listdir(dest_path))
+                msg = tr('directory {0} already exist{1}. Delete it and all files inside to replace with file?').format(
+                    dest_path, ' and contains files' if has_files else ''
+                )
+            ans = _ask_resolve(msg, QMessageBox.Yes|QMessageBox.No)
             if ans != QMessageBox.Yes:
                 return
+
+            # try to delete files (or even a directory with many-many-many files inside - we asked user for it!)
+            removeFile(dest_path)
 
         op.setProgressText(tr('Copying {0}').format(os.path.basename(removeLastSlash(source_path))))
         try:
