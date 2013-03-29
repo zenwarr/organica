@@ -97,7 +97,7 @@ class ProfilePage(QWizardPage):
 
         if not self.profilesModel.rowCount():
             QMessageBox.information(self, tr('Creating library'),
-                    tr('You have no profiles installed. Although you can still create ' \
+                    tr('You have no profiles installed. Although you can still create '
                     'libraries, it is better to install extensions providing profiles you need'))
 
         self.registerField('profile_uuid', self, 'profileUuid')

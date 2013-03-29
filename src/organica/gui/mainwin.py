@@ -12,7 +12,7 @@ from organica.gui.topicsview import TopicsView
 from organica.gui.objectsview import ObjectsView
 from organica.gui.actions import globalCommandManager, QMenuBarCommandContainer, QMenuCommandContainer, \
                         StandardStateValidator
-from organica.utils.helpers import tr, removeLastSlash
+from organica.utils.helpers import tr, removeLastSlash, lastFileDialogPath, setLastFileDialogPath
 from organica.gui.aboutdialog import AboutDialog
 from organica.gui.profiles import getProfile, genericProfile
 from organica.lib.library import Library
@@ -147,15 +147,9 @@ class MainWindow(QMainWindow):
             self.setWindowTitle('Organica')
 
     def loadLibrary(self):
-        qs = globalQuickSettings()
-        last_dir = qs['lastfiledialogpath']
-        if not last_dir or not isinstance(last_dir, str):
-            last_dir = ''
-
-        filename = QFileDialog.getOpenFileName(self, QCoreApplication.applicationName(),
-                                               last_dir, LIBRARY_DIALOG_FILTER)
+        filename = QFileDialog.getOpenFileName(self, QCoreApplication.applicationName(), lastFileDialogPath(), LIBRARY_DIALOG_FILTER)
         if filename:
-            qs['lastfiledialogpath'] = QFileInfo(filename).absoluteFilePath()
+            setLastFileDialogPath(filename)
             self.loadLibraryFromFile(filename)
 
     def loadLibraryFromFile(self, filename):
@@ -325,21 +319,19 @@ class MainWindow(QMainWindow):
 
     def addFiles(self):
         if self.activeEnviron is not None:
-            qs = globalQuickSettings()
-            dialog = QFileDialog(self, tr('Add files to library'), qs['lastfiledialogpath'])
+            dialog = QFileDialog(self, tr('Add files to library'), lastFileDialogPath())
             dialog.setFileMode(QFileDialog.ExistingFiles)
             if dialog.exec_() == QFileDialog.Accepted:
+                setLastFileDialogPath(dialog.selectedFiles()[0])
                 self.addFilesFromList(dialog.selectedFiles())
-                qs['lastfiledialogpath'] = dialog.selectedFiles()[0]
 
     def addDir(self):
         if self.activeEnviron is not None:
-            qs = globalQuickSettings()
-            dialog = QFileDialog(self, tr('Add directory with contents to library'))
+            dialog = QFileDialog(self, tr('Add directory with contents to library'), lastFileDialogPath())
             dialog.setFileMode(QFileDialog.Directory)
             if dialog.exec_() == QFileDialog.Accepted:
+                setLastFileDialogPath(dialog.selectedFiles()[0])
                 self.addFilesFromList([dialog.selectedFiles()[0]])
-                qs['lastfiledialogpath'] = dialog.selectedFiles()[0]
 
     def addFilesFromList(self, filenames):
         from organica.lib.objects import Node, Identity, Tag

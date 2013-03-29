@@ -5,6 +5,7 @@ from PyQt4.QtCore import pyqtSignal
 
 from organica.utils.helpers import tr
 from organica.utils.settings import globalQuickSettings
+from organica.utils.helpers import lastFileDialogPath, setLastFileDialogPath
 
 
 class PathEditWidget(QWidget):
@@ -34,12 +35,12 @@ class PathEditWidget(QWidget):
         qs = globalQuickSettings()
 
         self.fileDialog.setParent(self)
-        self.fileDialog.setDirectory(qs['lastfiledialogpath'])
+        self.fileDialog.setDirectory(lastFileDialogPath())
 
         if self.fileDialog.exec_() == QFileDialog.Accepted:
             files = self.fileDialog.selectedFiles()
             if files:
-                qs['lastfiledialogpath'] = files[0]
+                setLastFileDialogPath(files[0])
                 self.pathEdit.setText(files[0])
 
     @property

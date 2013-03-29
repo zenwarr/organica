@@ -75,3 +75,20 @@ def formatSize(size):
     else:
         postfix = 'b'
     return '{0} {1}'.format(round(size, 2), postfix)
+
+
+def lastFileDialogPath():
+    from organica.utils.settings import globalQuickSettings
+
+    qs = globalQuickSettings()
+    last_dir = qs['last_filedialog_path']
+    return last_dir if isinstance(last_dir, str) else ''
+
+
+def setLastFileDialogPath(new_path):
+    from organica.utils.settings import globalQuickSettings
+
+    qs = globalQuickSettings()
+    if os.path.exists(new_path) and os.path.isfile(new_path):
+        new_path = os.path.dirname(new_path)
+    qs['last_filedialog_path'] = new_path
