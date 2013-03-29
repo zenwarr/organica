@@ -215,8 +215,6 @@ class MainWindow(QMainWindow):
         if wizard.exec_() != CreateLibraryWizard.Accepted:
             return
 
-        #todo: check if database already used
-
         try:
             newlib = wizard.lib
         except Exception as err:
