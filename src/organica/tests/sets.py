@@ -43,7 +43,7 @@ class TestTagSet(unittest.TestCase):
         alice_node = lib.node(alice_node)
         self.assertEqual(len(tagSet), 0)
 
-        lib.disconnectDatabase()
+        lib.close()
 
 
 class TestNodeSet(unittest.TestCase):
@@ -113,4 +113,4 @@ class TestNodeSet(unittest.TestCase):
         node_set.query = NodeQuery()
         self.assertEqual(len(node_set), 1)
 
-        lib.disconnectDatabase()
+        lib.close()

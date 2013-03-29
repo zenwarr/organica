@@ -259,4 +259,4 @@ class TestFilters(unittest.TestCase):
         self.assertTrue(obj_unknown_book.passes(f))
         self.assertTrue(obj_unflushed.passes(f))
 
-        lib.disconnectDatabase()
+        lib.close()

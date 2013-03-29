@@ -101,9 +101,6 @@ class Library(QObject, Lockable):
         self._trans_states = []
         self._storage = None
 
-    def __del__(self):
-        self.disconnectDatabase()
-
     @staticmethod
     def loadLibrary(filename):
         """Load library from database file. File should exists, otherwise LibraryError raised.
@@ -815,7 +812,7 @@ class Library(QObject, Lockable):
         with self.lock:
             return self._conn
 
-    def disconnectDatabase(self):
+    def close(self):
         with self.lock:
             if self._conn:
                 self._conn.close()

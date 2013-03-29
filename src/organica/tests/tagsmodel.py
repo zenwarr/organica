@@ -29,4 +29,4 @@ class TestTagsModel(unittest.TestCase):
         values = [model.data(model.index(x, 1)) for x in range(3)]
         self.assertEqual(sorted(values), ['Brand new gentre', 'Fiction', 'Tragedy'])
 
-        lib.disconnectDatabase()
+        lib.close()

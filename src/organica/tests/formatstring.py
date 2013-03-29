@@ -52,4 +52,4 @@ class TestFormatString(unittest.TestCase):
         fs.template = 'Это не ASCII (c)'
         self.assertEqual(fs.format(obj), 'Это не ASCII (c)')
 
-        lib.disconnectDatabase()
+        lib.close()

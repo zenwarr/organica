@@ -36,7 +36,7 @@ class TestTagClass(unittest.TestCase):
         self.assertFalse(tclass.isFlushed)
         self.assertEqual(tclass.name, 'new_class')
 
-        lib.disconnectDatabase()
+        lib.close()
 
 
 class TestTag(unittest.TestCase):
@@ -63,7 +63,7 @@ class TestTag(unittest.TestCase):
         self.assertFalse(lib.tag(tag_ident))
         self.assertFalse(tag.isFlushed)
 
-        lib.disconnectDatabase()
+        lib.close()
 
 
 class TestNode(unittest.TestCase):
@@ -94,4 +94,4 @@ class TestNode(unittest.TestCase):
         self.assertTrue(Tag(year_class, 1855) in node.allTags)
         self.assertTrue(Tag(year_class, 1855) in lib.node(node).allTags)
 
-        lib.disconnectDatabase()
+        lib.close()

@@ -248,6 +248,9 @@ class MainWindow(QMainWindow):
         self.libTabWidget.removeTab(tab_index)
         environ.ui.deleteLater()
 
+        #todo: we should ensure that no other operations using this library
+        environ.lib.close()
+
     def closeActiveEnviron(self):
         if self.activeEnviron is not None:
             self.closeEnviron(self.activeEnviron)
