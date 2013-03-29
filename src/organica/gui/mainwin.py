@@ -235,6 +235,8 @@ class MainWindow(QMainWindow):
         if environ is None:
             return
 
+        print(environ.ui.splitter.sizes())
+
         # save gui state
         environ.lib.setMeta('splitterstate', str(environ.ui.splitter.saveState().toHex(), encoding='ascii'))
 
@@ -274,6 +276,8 @@ class MainWindow(QMainWindow):
         splitter_state = environ.lib.getMeta('splitterstate')
         if splitter_state:
             ui.splitter.restoreState(QByteArray.fromHex(splitter_state))
+        else:
+            ui.splitter.setSizes([250, 1000])
 
         ui.layout = QVBoxLayout()
         ui.layout.setContentsMargins(0, 0, 0, 0)
