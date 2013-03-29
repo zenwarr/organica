@@ -1,6 +1,6 @@
 import os
 from PyQt4.QtCore import QUrl, QDir, QFileInfo
-from PyQt4.QtGui import QFileIconProvider
+from PyQt4.QtGui import QFileIconProvider, QIcon
 from organica.utils.helpers import cicompare
 
 
@@ -101,7 +101,7 @@ class Locator(object):
                     target_file_info = QFileInfo(self.sourceUrl.toLocalFile())
             return QFileIconProvider().icon(target_file_info)
         else:
-            return None
+            return QIcon()
 
     def __deepcopy__(self, memo):
         # it is impossible to deepcopy PyQt objects

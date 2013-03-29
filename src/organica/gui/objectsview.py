@@ -1,6 +1,6 @@
 import logging
 from PyQt4.QtCore import Qt, QModelIndex
-from PyQt4.QtGui import QWidget, QTreeView, QVBoxLayout, QDesktopServices, QLabel, QListWidget, \
+from PyQt4.QtGui import QWidget, QTreeView, QVBoxLayout, QDesktopServices, QLabel, QListWidget, QListWidgetItem, \
                         QDialogButtonBox, QDialog, QMenu, QAction, QMessageBox
 from organica.lib.objectsmodel import ObjectsModel
 from organica.gui.selectionmodel import WatchingSelectionModel
@@ -165,7 +165,9 @@ class LocatorChooseDialog(Dialog):
 
         self.list = QListWidget(self)
         for locator in self.locators:
-            self.list.addItem(locator.launchUrl.toString())
+            launch_url = locator.launchUrl.toLocalFile() if locator.launchUrl.isLocalFile() else locator.launchUrl.toString()
+            item = QListWidgetItem(locator.icon, launch_url)
+            self.list.addItem(item)
 
         self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self)
         self.buttonBox.accepted.connect(self.accept)
