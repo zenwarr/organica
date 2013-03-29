@@ -235,8 +235,6 @@ class MainWindow(QMainWindow):
         if environ is None:
             return
 
-        print(environ.ui.splitter.sizes())
-
         # save gui state
         environ.lib.setMeta('splitterstate', str(environ.ui.splitter.saveState().toHex(), encoding='ascii'))
 

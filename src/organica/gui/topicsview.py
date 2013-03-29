@@ -1,4 +1,4 @@
-from PyQt4.QtCore import pyqtSignal, Qt
+from PyQt4.QtCore import pyqtSignal, Qt, QModelIndex
 from PyQt4.QtGui import QToolButton, QSortFilterProxyModel, QWidget, QLineEdit, QTreeView, QIcon, QButtonGroup, \
                         QVBoxLayout, QHBoxLayout, QMenu
 
@@ -154,10 +154,14 @@ class TopicsView(QWidget):
     @selectedTag.setter
     def selectedTag(self, new_tag):
         from organica.lib.objects import get_identity
-        if get_identity(new_tag) != self.selectedTag:
-            indexes = self._treeModel.indexesForTag(get_identity(new_tag))
+        if new_tag is None:
+            self.tree.setCurrentIndex(QModelIndex())
+        else:
+            indexes = self._treeModel.sourceModel().indexesForTag(get_identity(new_tag))
             if indexes:
-                self.setCurrentIndex(indexes[0])
+                self.tree.setCurrentIndex(self._treeModel.mapFromSource(indexes[0]))
+            else:
+                self.tree.setCurrentIndex(QModelIndex())
 
     def __onSearchTextChanged(self, new_search_text):
         tags_model = self._treeModel.sourceModel()

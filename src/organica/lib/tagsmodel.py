@@ -295,7 +295,7 @@ class TagsModel(QAbstractItemModel, Lockable):
 
         with self.lock:
             actual_tag = self.lib.tag(tag_identity)
-            if actual_tag is not None and actual_tag.className not in self.__hierarchy:
+            if actual_tag is not None and '*' not in self.__hierarchy and actual_tag.className not in self.__hierarchy:
                 return []
 
-            return [self.__indexForLeaf(x) for x in self.__leaves if x.tag == tag_identity]
+            return [self.__indexForLeaf(x) for x in self.__leaves.values() if x.tag == tag_identity]

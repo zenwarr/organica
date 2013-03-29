@@ -38,20 +38,20 @@ class TopicNameCombo(QComboBox):
             self.model().lib = None
 
     def __onClassChanged(self, class_name):
+        from organica.lib.tagsmodel import TagsModel
+
         if self.environ and self.environ.lib is not None:
-            topics_model = self.environ.ui.topicsView.model
+            topics_view = self.environ.ui.topicsView
+            topics_model = topics_view.model
 
             # save current item
-            current_tag = self.environ.ui.topicsView.selectedTag
+            current_tag = topics_view.selectedTag
 
             class_filter = TagQuery(tag_class=class_name) if class_name != '*' else TagQuery()
             class_filter.hint = self.filterHint
             topics_model.filters = replaceInFilters(topics_model.filters, self.filterHint, class_filter)
 
-            if current_tag:
-                indexes = topics_model.indexesForTag(current_tag)
-                if indexes:
-                    self.environ.ui.topicsView.setCurrentIndex(indexes[0])
+            topics_view.selectedTag = current_tag
 
 
 class GenericProfileEnviron(object):
