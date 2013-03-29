@@ -45,3 +45,6 @@ __pycache__
 todo
 docs/
 .idea/
+qrc_*
+ui_*
+*.qm
