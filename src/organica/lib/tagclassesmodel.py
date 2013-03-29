@@ -104,3 +104,12 @@ class TagClassesModel(QStandardItemModel):
             if self.index(row_index, 0).data(self.TagClassIdentityRole) == removed_tag_class.identity:
                 self.removeRows(row_index, 1)
                 break
+
+    def classIndex(self, tag_class):
+        from organica.lib.objects import get_identity
+
+        for row in range(self.rowCount()):
+            index = self.index(row, 0)
+            if index.data(self.TagClassIdentityRole) == get_identity(tag_class):
+                return index
+        return None

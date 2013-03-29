@@ -28,6 +28,8 @@ class PathEditWidget(QWidget):
         layout.addWidget(self.dialogButton)
         self.setLayout(layout)
 
+        self.setFocusProxy(self.pathEdit)
+
     def showDialog(self):
         qs = globalQuickSettings()
 

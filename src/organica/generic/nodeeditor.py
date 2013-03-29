@@ -1,12 +1,14 @@
 import copy
-from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex, pyqtSignal
-from PyQt4.QtGui import QWidget, QTreeView, QToolButton, QHBoxLayout, QVBoxLayout, QDialog, QMessageBox, QLineEdit, \
-                        QFormLayout, QDialogButtonBox, QComboBox, QSizePolicy, QCheckBox, QValidator, QLabel
+from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex, pyqtSignal, QSize
+from PyQt4.QtGui import QWidget, QTableView, QToolButton, QHBoxLayout, QVBoxLayout, QDialog, QMessageBox, QLineEdit, \
+                        QFormLayout, QDialogButtonBox, QComboBox, QSizePolicy, QCheckBox, QValidator, QLabel, \
+                        QItemDelegate
 from organica.generic.extension import GENERIC_EXTENSION_UUID
 from organica.lib.objects import Node, Tag, TagValue
 from organica.utils.helpers import cicompare, tr, setWidgetTabOrder
 from organica.gui.dialog import Dialog
 from organica.lib.tagclassesmodel import TagClassesModel
+from organica.generic.valueeditwidget import ValueEditWidget
 
 
 class GenericNodeEditorProvider(object):
@@ -24,16 +26,24 @@ class GenericNodeEditor(QWidget):
         QWidget.__init__(self, parent)
         self.lib = lib
 
-        self.tagTree = QTreeView(self)
+        self.tagsTable = QTableView(self)
+        self.tagsTable.setWordWrap(False)
+        self.tagsTable.setCornerButtonEnabled(False)
+        self.tagsTable.setSelectionBehavior(QTableView.SelectRows)
+        self.tagsTable.setSelectionMode(QTableView.ExtendedSelection)
+        self.tagsTable.verticalHeader().setDefaultSectionSize(20)
+        self.tagsTable.verticalHeader().hide()
+        self.tagsTable.horizontalHeader().setStretchLastSection(True)
+
         self.tagsModel = GenericTagsModel(lib)
-        self.tagTree.setModel(self.tagsModel)
+        self.tagsTable.setModel(self.tagsModel)
 
         self.btnAddTag = QToolButton(self)
-        self.btnAddTag.setText(tr('Add tag'))
+        self.btnAddTag.setText(tr('Add'))
         self.btnAddTag.clicked.connect(self.addTag)
 
         self.btnRemoveTag = QToolButton(self)
-        self.btnRemoveTag.setText(tr('Remove tag'))
+        self.btnRemoveTag.setText(tr('Remove'))
         self.btnRemoveTag.clicked.connect(self.removeTag)
 
         self.buttonsLayout = QHBoxLayout()
@@ -42,15 +52,59 @@ class GenericNodeEditor(QWidget):
         self.buttonsLayout.addWidget(self.btnRemoveTag)
 
         self.layout = QVBoxLayout(self)
-        self.layout.addWidget(self.tagTree)
+        self.layout.addWidget(self.tagsTable)
         self.layout.addLayout(self.buttonsLayout)
 
         self.originalCommonTags = []
 
+        class TagClassDelegate(QItemDelegate):
+            def createEditor(self, parent, option, index):
+                model = index.model()
+                if model is None or not hasattr(model, 'lib'):
+                    raise ValueError('TagClassDelegate cannot be used with models that do not have "lib" attribute')
+                widget = QComboBox(parent)
+                widget.setModel(TagClassesModel(model.lib))
+                widget.setModelColumn(0)
+                return widget
+
+            def setEditorData(self, editor, index):
+                editor.setCurrentIndex(editor.model().classIndex(index.data(GenericTagsModel.TagClassRole)).row())
+
+            def setModelData(self, editor, model, index):
+                current_class = editor.model().index(editor.currentIndex(), 0).data(TagClassesModel.TagClassIdentityRole)
+                lib = index.model().lib
+                model.setData(index, lib.tagClass(current_class))
+
+            def sizeHint(self, option, index):
+                return QSize(-1, 20)
+
+        class TagValueDelegate(QItemDelegate):
+            def createEditor(self, parent, option, index):
+                model = index.model()
+                if model is None or not hasattr(model, 'lib'):
+                    raise ValueError('TagValueDelegate cannot be used with models that do not have "lib" attribute')
+                return ValueEditWidget(parent, model.lib, compact_layout=True)
+
+            def setEditorData(self, editor, index):
+                editor.value = index.data(Qt.EditRole)
+
+            def setModelData(self, editor, model, index):
+                model.setData(index, editor.value, Qt.EditRole)
+
+            def sizeHint(self, option, index):
+                return QSize(-1, 20)
+
+        # we should hold references to delegates to prevent Python GC from deleting objects (as view does not own
+        # delegates we set)
+        self._first_delegate = TagClassDelegate()
+        self._second_delegate = TagValueDelegate()
+
+        self.tagsTable.setItemDelegateForColumn(0, self._first_delegate)
+        self.tagsTable.setItemDelegateForColumn(1, self._second_delegate)
+
     def load(self, nodes):
         self.originalCommonTags = [copy.deepcopy(tag) for tag in Node.commonTags(nodes)]
-        self.tagsModel.load(self.originalCommonTags)
-        self.tagTree.expandAll()
+        self.tagsModel.tags = self.originalCommonTags
 
     def getModified(self, original_node):
         node_tags = [copy.deepcopy(tag) for tag in original_node.allTags if tag not in self.originalCommonTags] + self.tagsModel.tags
@@ -59,229 +113,120 @@ class GenericNodeEditor(QWidget):
         return node
 
     def reset(self):
-        self.tagsModel.load([])
+        self.tagsModel.tags = []
 
     def addTag(self):
         """Brings dialog to enter name/value of new tag and then adds new tag to list"""
         dlg = AddTagDialog(self, self.lib)
-        current_class = self.tagTree.currentIndex().data(GenericTagsModel.TAG_CLASS_ROLE)
-        if current_class:
+        current_class = self.tagsTable.currentIndex().data(GenericTagsModel.TagClassRole)
+        if current_class is not None:
             dlg.tagClass = current_class
         if dlg.exec_() == AddTagDialog.Accepted:
-            new_index = self.tagsModel.addTag(dlg.tagClass, dlg.tagValue)
+            new_index = self.tagsModel.addTag(Tag(dlg.tagClass, dlg.tagValue))
             if new_index is not None and new_index.isValid():
-                self.tagTree.setCurrentIndex(new_index)
+                self.tagsTable.setCurrentIndex(new_index)
             self.dataChanged.emit()
 
     def removeTag(self):
-        """Removes tag that is currently selected in tree"""
-        self.tagsModel.remove(self.tagTree.currentIndex())
-        self.dataChanged.emit()
-
-    def __onDataChanged(self, top_left, bottom_right):
+        self.tagsModel.removeTags([index.data(GenericTagsModel.TagRole) for index in self.tagsTable.selectionModel().selectedRows()])
         self.dataChanged.emit()
 
 
 class GenericTagsModel(QAbstractItemModel):
-    _TOPLEVEL_GROUP_INDEX = 4294967295  # 2**32 - 1
-    TAG_CLASS_ROLE = Qt.UserRole + 200
-
-    class TagGroup(object):
-        def __init__(self, tagClass, tags):
-            self.tagClass = tagClass
-            self.tags = tags
+    TagClassRole = Qt.UserRole + 200
+    TagRole = Qt.UserRole + 201
 
     def __init__(self, lib):
         QAbstractItemModel.__init__(self)
-        self.__groups = []
         self.lib = lib
-
-    def load(self, tags):
-        """Load list of tags into model"""
-        self.__groups = []
-
-        groups = dict()
-        for tag in tags:
-            tag_copy = copy.deepcopy(tag)
-            if tag.tagClass in groups:
-                groups[tag.tagClass].append(tag_copy)
-            else:
-                groups[tag.tagClass] = [tag_copy]
-
-        for tag_class in groups.keys():
-            self.__groups.append(GenericTagsModel.TagGroup(tag_class, groups[tag_class]))
-
-        self.reset()
+        self.__tags = []
 
     @property
     def tags(self):
-        result = []
-        for group in self.__groups:
-            result += group.tags
-        return result
+        return copy.deepcopy(self.__tags)
+
+    @tags.setter
+    def tags(self, new_tags):
+        self.beginResetModel()
+        self.__tags = new_tags
+        self.endResetModel()
 
     def flags(self, index):
-        if not index.isValid() or (index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 1):
-            return Qt.ItemIsEnabled
-        elif index.internalId() != self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
-            return Qt.ItemIsEnabled
-        else:
-            return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
+        return Qt.ItemIsSelectable|Qt.ItemIsEnabled|Qt.ItemIsEditable
 
-    def index(self, row, column, parent=QModelIndex()):
-        if not parent.isValid():
-            if 0 <= row < len(self.__groups):
-                return self.createIndex(row, column, self._TOPLEVEL_GROUP_INDEX)
-        elif parent.internalId() == self._TOPLEVEL_GROUP_INDEX and parent.column() == 0:
-            if 0 <= row < len(self.__groups[parent.row()].tags):
-                return self.createIndex(row, column, parent.row())
-        return QModelIndex()
+    def index(self, row, column, parent):
+        return self.createIndex(row, column) if self.hasIndex(row, column, parent) else QModelIndex()
 
     def parent(self, index):
-        if not index.isValid() or index.internalId() == self._TOPLEVEL_GROUP_INDEX:
-            return QModelIndex()
-        else:
-            return self.createIndex(index.internalId(), 0, self._TOPLEVEL_GROUP_INDEX)
+        return QModelIndex()
 
     def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
+        if not index.isValid() or not (0 <= index.row() < len(self.__tags)):
             return None
-
-        if index.internalId() == self._TOPLEVEL_GROUP_INDEX:
+        tag = self.__tags[index.row()]
+        if role == Qt.DisplayRole:
             if index.column() == 0:
-                if role in (Qt.DisplayRole, Qt.EditRole):
-                    return self.__groups[index.row()].tagClass.name
-                elif role == self.TAG_CLASS_ROLE:
-                    return self.__groups[index.row()].tagClass
-        else:
-            group_index = index.internalId()
-            if (0 <= group_index < len(self.__groups)) and (0 <= index.row() <
-                            len(self.__groups[group_index].tags)) and index.column() == 1:
-                if role in (Qt.DisplayRole, Qt.EditRole):
-                    return str(self.__groups[group_index].tags[index.row()].value)
-                elif role == self.TAG_CLASS_ROLE:
-                    return self.__groups[group_index].tagClass
+                return tag.tagClass.name
+            elif index.column() == 1:
+                return str(tag.value)
+        elif role == Qt.EditRole:
+            if index.column() == 0:
+                return tag.tagClass
+            elif index.column() == 1:
+                return tag.value
+        elif role == self.TagClassRole:
+            return tag.tagClass
+        elif role == self.TagRole:
+            return tag
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal:
-            if role == Qt.DisplayRole:
-                if section == 0:
-                    return tr('Class name')
-                elif section == 1:
-                    return tr('Value')
+        if orientation == Qt.Horizontal and role in (Qt.DisplayRole, Qt.EditRole):
+            if section == 0:
+                return tr('Class')
+            elif section == 1:
+                return tr('Value')
         return None
 
-    def rowCount(self, index=QModelIndex()):
-        if not index.isValid():
-            return len(self.__groups)
-        elif index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
-            if 0 <= index.row() < len(self.__groups):
-                return len(self.__groups[index.row()].tags)
-        return 0
+    def rowCount(self, index):
+        return len(self.__tags) if not index.isValid() else 0
 
-    def columnCount(self, index=QModelIndex()):
-        return 2 if (not index.isValid() or (index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0)) else 0
+    def columnCount(self, index):
+        return 2
 
     def setData(self, index, value, role=Qt.EditRole):
-        if not index.isValid() or role == Qt.EditRole:
+        if not index.isValid() or not (0 <= index.row() < len(self.__tags)) or role != Qt.EditRole:
             return False
 
-        # first case - change group name
-        if index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
-            old_group_name = self.__groups[index.row()].tagClass.name
-            if old_group_name == value:
-                return True
+        tag = self.__tags[index.row()]
+        if index.column() == 0:
+            new_value = tag.value.convertTo(value.valueType)
+            tag.tagClass = value
+            tag.value = new_value
+        elif index.column() == 1:
+            tag.value = TagValue(value)
+        self.dataChanged.emit(index, index)
 
-            group_index = 0
-            # if we already have another group with this name, join it
-            for group in self.__groups:
-                if group.tagClass.name == value:
-                    # add only tags from group user renamed that are not in another group
-                    tags_to_add = [tag for tag in self.__groups[index.row()].tags if tag not in group.tags]
-
-                    if tags_to_add:
-                        self.beginInsertRows(self.createIndex(group_index, 0, self._TOPLEVEL_GROUP_INDEX), len(group.tags),
-                                             len(group.tags) + len(tags_to_add))
-                        group.tags += tags_to_add
-                        self.endInsertRows()
-
-                    # remove old (renamed) group
-                    self.beginRemoveRows(QModelIndex(), index.row(), index.row())
-                    del self.__groups[index.row()]
-                    self.endRemoveRows()
-                    return True
-
-                group_index += 1
-        elif (0 <= index.internalId() < len(self.__groups) and index.column() == 1):
-            if not (0 <= index.row() < len(self.__groups[index.internalId()].tags)):
-                return False
-
-            group = self.__groups[index.internalId()]
-            if group.tags[index.row()].value == value:
-                return True
-
-            # change tag value. If we have tag with same name and value, fail
-            from organica.lib.filters import TagQuery
-
-            q = TagQuery(tag_class=group.tagClass.name, value=value)
-            if any(q.passes(tag) for tag in group.tags):
-                return False
-
-            group[index.row()].value = value
-            return True
-
-        return False
-
-    def addTag(self, tag_class, tag_value):
-        """Adds new tag to model and returns index of this tag."""
-
-        # we should find group index for this tag. If group does not exist, create it
-        group_index = 0
-        for group in self.__groups:
-            if group.tagClass == tag_class:
-                break
-            group_index += 1
-        else:
-            self.beginInsertRows(QModelIndex(), len(self.__groups), len(self.__groups))
-            self.__groups.append(GenericTagsModel.TagGroup(tag_class, []))
-            group_index = len(self.__groups) - 1
-            self.endInsertRows()
-
-        group = self.__groups[group_index]
-
-        # check if have duplicated tag in this group
-        from organica.lib.filters import TagQuery
-
-        q = TagQuery(tag_class=tag_class, value=tag_value)
-        if any(q.passes(tag) for tag in group.tags):
-            return QModelIndex()
-
-        self.beginInsertRows(self.createIndex(group_index, 0, self._TOPLEVEL_GROUP_INDEX), len(group.tags), len(group.tags))
-        group.tags.append(Tag(tag_class, tag_value))
+    def addTag(self, tag):
+        self.beginInsertRows(QModelIndex(), len(self.__tags), len(self.__tags))
+        self.__tags.append(tag)
         self.endInsertRows()
-        new_row_index = len(group.tags) - 1
-        return self.createIndex(new_row_index, 0, group_index)
 
-    def remove(self, index):
-        if not index or not index.isValid():
-            return
+    def removeTag(self, tag):
+        index_of_tag = self.__tags.index(tag)
+        if index_of_tag >= 0:
+            self.beginRemoveRows(QModelIndex(), index_of_tag, index_of_tag)
+            del self.__tags[index_of_tag]
+            self.endRemoveRows()
 
-        # we can remove entire group!
-        if index.internalId() == self._TOPLEVEL_GROUP_INDEX and index.column() == 0:
-            self.beginRemoveRows(QModelIndex(), index.row(), index.row())
-            del self.__groups[index.row()]
-            self.endRemoveRows()
-        elif index.internalId() != self._TOPLEVEL_GROUP_INDEX and index.column() == 1:
-            self.beginRemoveRows(self.createIndex(index.internalId(), 0, self._TOPLEVEL_GROUP_INDEX), index.row(), index.row())
-            del self.__groups[index.internalId()].tags[index.row()]
-            self.endRemoveRows()
+    def removeTags(self, tags):
+        #todo: optimize?
+        for tag in tags:
+            self.removeTag(tag)
 
 
 class AddTagDialog(Dialog):
     def __init__(self, parent, lib):
-        from organica.generic.valueeditwidget import ValueEditWidget
-
         Dialog.__init__(self, parent, name='generic_add_tag_dialog')
         self.lib = lib
 
