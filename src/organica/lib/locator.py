@@ -93,7 +93,13 @@ class Locator(object):
     @property
     def icon(self):
         if self.isLocalFile:
-            return QFileIconProvider().icon(QFileInfo(self.localFilePath))
+            target_file_info = QFileInfo(self.localFilePath)
+            if not target_file_info.exists():
+                # check if we can use source file... we will use source if it does not exist - some systems can determine
+                # file type by extension
+                if self.sourceUrl and self.sourceUrl.isLocalFile():
+                    target_file_info = QFileInfo(self.sourceUrl.toLocalFile())
+            return QFileIconProvider().icon(target_file_info)
         else:
             return None
 
