@@ -161,6 +161,7 @@ class ObjectsModel(QAbstractItemModel, Lockable):
                     self.beginRemoveRows(QModelIndex(), node_index, node_index)
                     del self.__cached_nodes[node_index]
                     self.endRemoveRows()
+                    break
 
     def __onElementUpdated(self, updated_element):
         with self.lock:
@@ -168,6 +169,7 @@ class ObjectsModel(QAbstractItemModel, Lockable):
                 if self.__cached_nodes[node_index] == updated_element:
                     self.dataChanged.emit(self.index(node_index, 0), self.index(node_index,
                                                                                 self.columnCount() - 1))
+                    break
 
     def __onResetted(self):
         with self.lock:
@@ -178,4 +180,4 @@ class ObjectsModel(QAbstractItemModel, Lockable):
 
     def __fetch(self):
         with self.lock:
-            self.__cached_nodes = [self.lib.node(identity) for identity in self.__set]
+            self.__cached_nodes = self.__set.allNodes

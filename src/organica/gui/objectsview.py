@@ -113,43 +113,11 @@ class ObjectsView(QWidget):
 
         nodes_to_remove = [index.data(ObjectsModel.NodeIdentityRole) for index in self.view.selectionModel().selectedRows()]
         if nodes_to_remove:
-            nodes_to_remove = [node.lib.node(node) for node in nodes_to_remove]
-            has_managed_files = False
-            for node in nodes_to_remove:
-                locator_tags = node.tags(TagQuery(value_type=TagValue.TYPE_LOCATOR))
-                has_managed_files = any((tag.value.locator.isManagedFile for tag in locator_tags))
-                if has_managed_files:
-                    break
-
-            msgbox = QMessageBox(self)
-            msgbox.setWindowTitle(tr('Delete objects'))
-            msgbox.setText(tr('Really delete objects?'))
-            msgbox.setIcon(QMessageBox.Question)
-            if has_managed_files:
-                msgbox.setText(msgbox.text() + tr(' You can also delete files in local storage used by this objects only.'))
-            msgbox.setStandardButtons(QMessageBox.Cancel)
-            delete_button = msgbox.addButton(tr('Delete'), QMessageBox.AcceptRole)
-            delete_with_files_button = None
-            if has_managed_files:
-                delete_with_files_button = msgbox.addButton(tr('Delete with files'), QMessageBox.AcceptRole)
-
-            msgbox.setDefaultButton(delete_button)
-
-            msgbox.exec_()
-            clicked_button = msgbox.clickedButton()
-            if clicked_button is msgbox.button(QMessageBox.Cancel):
-                return
-
-            files_to_remove = []
-            if clicked_button is delete_with_files_button:
-                def can_delete(locator):
-                    if locator.isManagedFile and locator.lib and locator.lib.storage is not None:
-                        return len(locator.lib.storage.referredNodes(locator)) == 1
-
-                locators = list()
+            if QMessageBox.question(self, tr('Delete objects'), tr('Do you want to delete selected objects?'),
+                                    QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
                 for node in nodes_to_remove:
-                    locators += node.tags(TagQuery(valueType=TagValue.TYPE_LOCATOR))
-                    files_to_remove += [loc for loc in locators if can_delete(loc)]
+                    if node is not None:
+                        node.lib.removeNode(node)
 
 
 class LocatorChooseDialog(Dialog):
