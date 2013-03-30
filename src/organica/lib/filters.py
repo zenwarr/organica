@@ -755,6 +755,7 @@ class TagQuery(_Query):
                        node value will be get from library.
         hidden:        matches tags that have given hidden class flag value.
         friend_of:     matches tags that are friends of given tags.
+        value_to_text: matches tags which value converted to text is equal to given value
         """
 
         q = copy.deepcopy(self)

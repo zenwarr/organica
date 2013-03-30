@@ -4,6 +4,7 @@ from organica.utils.helpers import removeLastSlash, tr
 from organica.utils.lockable import Lockable
 from organica.lib.sets import NodeSet
 from organica.lib.filters import TagQuery
+from organica.lib.objects import get_identity
 
 
 class NodeNameColumn(object):
@@ -181,3 +182,8 @@ class ObjectsModel(QAbstractItemModel, Lockable):
     def __fetch(self):
         with self.lock:
             self.__cached_nodes = self.__set.allNodes
+
+    def indexOfNode(self, node):
+        row = self.__cached_nodes.index(get_identity(node))
+        return self.index(row, 0) if row >= 0 else QModelIndex()
+

@@ -1,8 +1,9 @@
 <RCC>
-  <qresource prefix="main">
-    <file>images/application.png</file>
-    <file>images/eraser.png</file>
-    <file>data/COPYING.html</file>
-    <file>data/CREDITS.html</file>
-  </qresource>
+    <qresource prefix="/main">
+        <file>images/application.png</file>
+        <file>images/eraser.png</file>
+        <file>data/COPYING.html</file>
+        <file>data/CREDITS.html</file>
+        <file>images/magnifier.png</file>
+    </qresource>
 </RCC>

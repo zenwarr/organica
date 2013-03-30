@@ -2,11 +2,11 @@ import logging
 import os
 import sys
 
-from PyQt4.QtGui import QMainWindow, QSplitter, QWidget, QIcon, QFileDialog, QMessageBox, \
-                        QTabWidget, QVBoxLayout
-from PyQt4.QtCore import QByteArray, QCoreApplication, QFileInfo, QDir, QUrl
+from PyQt4.QtGui import QMainWindow, QSplitter, QWidget, QIcon, QFileDialog, QMessageBox, QPixmap, \
+                        QTabWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy, QComboBox, QStandardItem, QStandardItemModel
+from PyQt4.QtCore import QByteArray, QCoreApplication, QFileInfo, QDir, QUrl, QEvent, Qt, pyqtSignal
 
-from organica.utils.settings import globalQuickSettings
+from organica.utils.settings import globalQuickSettings, globalSettings
 import organica.gui.resources.qrc_main  # resource initialization
 from organica.gui.topicsview import TopicsView
 from organica.gui.objectsview import ObjectsView
@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         cm.addNewCommand(self.showLibraryDatabase, 'Library.ShowDatabase', tr('Show database'), validator='LibraryActive')
         cm.addNewCommand(self.showLibraryProperties, 'Library.ShowProperties', tr('Library properties...'),
                          validator='LibraryActive')
+        cm.addNewCommand(self.startSearchCommand, 'Library.Search', tr('Search'), validator='LibraryActive', default_shortcut='Ctrl+F')
         cm.addNewCommand(self.close, 'Application.Exit', tr('Exit'))
         cm.addNewCommand(self.showAbout, 'Application.ShowAbout', tr('About...'))
 
@@ -90,6 +91,8 @@ class MainWindow(QMainWindow):
         self.libraryMenu.appendSeparator()
         self.libraryMenu.appendCommand('Library.AddFiles')
         self.libraryMenu.appendCommand('Library.AddDirectory')
+        self.libraryMenu.appendSeparator()
+        self.libraryMenu.appendCommand('Library.Search')
         self.libraryMenu.appendSeparator()
         self.libraryMenu.appendCommand('Library.ShowProperties')
         self.menuBarContainer.appendContainer(self.libraryMenu)
@@ -139,6 +142,7 @@ class MainWindow(QMainWindow):
 
         qs['mainWindow_geometry'] = str(self.saveGeometry().toHex(), encoding='ascii')
         qs['mainWindow_state'] = str(self.saveState().toHex(), encoding='ascii')
+        globalSearchHistoryModel().saveHistory()
 
     def updateTitle(self):
         if self.activeEnviron is not None:
@@ -229,6 +233,7 @@ class MainWindow(QMainWindow):
 
         # save gui state
         environ.lib.setMeta('splitterstate', str(environ.ui.splitter.saveState().toHex(), encoding='ascii'))
+        environ.lib.setMeta('objectsview_splitter', str(environ.ui.objectsViewSplitter.saveState().toHex(), encoding='ascii'))
 
         if environ.profile is not None:
             if environ.profileEnviron is not None and hasattr(environ.profileEnviron, 'onUnload'):
@@ -258,13 +263,24 @@ class MainWindow(QMainWindow):
     def createUiForEnviron(self, environ):
         ui = QWidget(self)
 
-        ui.splitter = QSplitter(ui)
+        ui.splitter = QSplitter(Qt.Horizontal, ui)
 
         ui.topicsView = TopicsView(ui, environ.lib)
-        ui.objectsView = ObjectsView(ui, environ.lib)
+        ui.objectsViewSplitter = QSplitter(Qt.Vertical, ui)
+
+        ui.objectsViewParent = QWidget()
+        ui.objectsView = ObjectsView(ui.objectsViewParent, environ.lib)
+        ui.searchPanel = SearchPanel(ui.objectsViewParent, environ.lib)
+        m_layout = QVBoxLayout(ui.objectsViewParent)
+        m_layout.addWidget(ui.objectsView)
+        m_layout.addWidget(ui.searchPanel)
+
+        ui.objectsInfoWidgetParent = QWidget()
+        ui.objectsViewSplitter.addWidget(ui.objectsViewParent)
+        ui.objectsViewSplitter.addWidget(ui.objectsInfoWidgetParent)
 
         ui.splitter.addWidget(ui.topicsView)
-        ui.splitter.addWidget(ui.objectsView)
+        ui.splitter.addWidget(ui.objectsViewSplitter)
 
         splitter_state = environ.lib.getMeta('splitterstate')
         if splitter_state:
@@ -272,12 +288,27 @@ class MainWindow(QMainWindow):
         else:
             ui.splitter.setSizes([250, 1000])
 
+        splitter_state = environ.lib.getMeta('objectsview_splitter')
+        if splitter_state:
+            ui.objectsViewSplitter.restoreState(QByteArray.fromHex(splitter_state))
+        else:
+            ui.objectsViewSplitter.setSizes([800, 200])
+
         ui.layout = QVBoxLayout()
         ui.layout.setContentsMargins(0, 0, 0, 0)
         ui.layout.addWidget(ui.splitter)
         ui.setLayout(ui.layout)
 
+        s = globalSettings()
+
         ui.topicsView.selectedTagChanged.connect(self.__onCurrentTopicChanged)
+
+        quick_search = s['quick_search']
+        if not isinstance(quick_search, bool):
+            quick_search = True
+        ui.searchPanel.quickSearch = quick_search
+        ui.searchPanel.searchRequested.connect(self.search)
+        ui.searchPanel.hide()
 
         return ui
 
@@ -376,6 +407,8 @@ class MainWindow(QMainWindow):
     def __onCurrentTopicChanged(self, new_tag_ident):
         from organica.lib.filters import NodeQuery, TagQuery
 
+        self.endSearch()
+
         for env in self.workspace:
             if env.ui.topicsView is self.sender():
                 environ = env
@@ -401,6 +434,57 @@ class MainWindow(QMainWindow):
                 self.closeEnviron(env)
                 self.loadLibraryFromFile(lib_filename)
 
+    def startSearchCommand(self):
+        env = self.activeEnviron
+        if env is not None:
+            if env.ui.searchPanel.isVisible():
+                self.endSearch()
+            else:
+                self.startSearch()
+
+    def startSearch(self, search_text=''):
+        env = self.activeEnviron
+        if env is not None:
+            env.ui.searchPanel.show()
+            env.ui.searchPanel.startSearch(search_text)
+            env.ui.searchPanel.setFocus()
+
+    def endSearch(self):
+        env = self.activeEnviron
+        if env is not None and env.ui.searchPanel.isVisible():
+            env.ui.searchPanel.endSearch()
+            env.ui.searchPanel.hide()
+
+    def keyPressEvent(self, event):
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Escape:
+            if self.activeEnviron is not None and self.activeEnviron.ui.searchPanel.isVisible():
+                self.endSearch()
+                event.accept()
+
+    objectsSearchHint = 'objects_search_hint'
+
+    def search(self, search_text):
+        from organica.lib.filters import NodeQuery, TagQuery, Wildcard
+
+        env = self.activeEnviron
+        if env is not None:
+            current_node = env.ui.objectsView.currentNode
+
+            if search_text:
+                search_text = str(search_text)
+                mask = '*{0}*'.format(search_text)
+                search_filter = NodeQuery(tags=TagQuery(value_to_text=Wildcard(mask)))
+                search_filter = search_filter | NodeQuery(display_name=Wildcard(mask))
+            else:
+                search_filter = NodeQuery()
+
+            search_filter.hint = self.objectsSearchHint
+
+            objects_model = env.ui.objectsView.model
+            objects_model.filters = replaceInFilters(objects_model.filters, self.objectsSearchHint, search_filter)
+
+            env.ui.objectsView.currentNode = current_node
+
 
 _mainWindow = None
 
@@ -410,3 +494,93 @@ def globalMainWindow():
     if not _mainWindow:
         _mainWindow = MainWindow()
     return _mainWindow
+
+
+class SearchPanel(QWidget):
+    searchRequested = pyqtSignal(str)
+
+    def __init__(self, parent, lib):
+        QWidget.__init__(self, parent)
+
+        self.quickSearch = True
+        self.lib = lib
+
+        self.iconLabel = QLabel(self)
+        self.iconLabel.setPixmap(QPixmap(':/main/images/magnifier.png'))
+
+        self.cmbSearch = QComboBox(self)
+        self.cmbSearch.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.cmbSearch.setEditable(True)
+        self.cmbSearch.editTextChanged.connect(self.__onEditTextChanged)
+
+        self.m_layout = QHBoxLayout(self)
+        self.m_layout.setContentsMargins(0, 0, 0, 0)
+        self.m_layout.addWidget(self.iconLabel)
+        self.m_layout.addWidget(self.cmbSearch)
+
+        self.setFocusProxy(self.cmbSearch)
+        self.cmbSearch.setModel(globalSearchHistoryModel())
+        self.cmbSearch.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj is self.cmbSearch:
+            if event.type() == QEvent.FocusOut:
+                globalSearchHistoryModel().addToHistory(self.cmbSearch.currentText())
+            elif event.type() == QEvent.KeyPress:
+                if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Enter:
+                    text = self.cmbSearch.currentText()
+                    self.searchRequested.emit(text)
+                    globalSearchHistoryModel().addToHistory(text)
+                    return True
+        return QWidget.eventFilter(self, obj, event)
+
+    def __onEditTextChanged(self, search_text):
+        if self.quickSearch:
+            self.searchRequested.emit(search_text)
+
+    def startSearch(self, search_text=''):
+        self.cmbSearch.setCurrentIndex(-1)
+        self.cmbSearch.lineEdit().setPlaceholderText(tr('Search'))
+        self.cmbSearch.lineEdit().setText(search_text)
+        self.cmbSearch.lineEdit().selectAll()
+
+    def endSearch(self):
+        globalSearchHistoryModel().addToHistory(self.cmbSearch.currentText())
+
+
+class SearchHistoryModel(QStandardItemModel):
+    def __init__(self):
+        QStandardItemModel.__init__(self)
+
+        # load
+        qs = globalQuickSettings()
+
+        search_history = qs['search_history']
+        if not isinstance(search_history, (tuple, list)):
+            search_history = []
+
+        for search_history_item in search_history:
+            if isinstance(search_history_item, str):
+                self.appendRow(QStandardItem(search_history_item))
+
+    def saveHistory(self):
+        qs = globalQuickSettings()
+
+        history = [self.item(row).text() for row in range(self.rowCount())]
+        qs['search_history'] = history
+
+    def addToHistory(self, text):
+        if not isinstance(text, str):
+            raise ValueError('string expected')
+        if text and not self.findItems(text):
+            self.insertRow(0, QStandardItem(text))
+
+
+_globalSearchHistoryModel = None
+
+
+def globalSearchHistoryModel():
+    global _globalSearchHistoryModel
+    if _globalSearchHistoryModel is None:
+        _globalSearchHistoryModel = SearchHistoryModel()
+    return _globalSearchHistoryModel

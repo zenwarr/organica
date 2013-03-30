@@ -119,6 +119,18 @@ class ObjectsView(QWidget):
                     if node is not None:
                         node.lib.removeNode(node)
 
+    @property
+    def currentNode(self):
+        return self.view.currentIndex().data(ObjectsModel.NodeIdentityRole)
+
+    @currentNode.setter
+    def currentNode(self, new_node):
+        if new_node is not None:
+            index = self.model.indexOfNode(new_node) or QModelIndex()
+        else:
+            index = QModelIndex()
+        self.view.setCurrentIndex(index)
+
 
 class LocatorChooseDialog(Dialog):
     def __init__(self, parent, locators):
