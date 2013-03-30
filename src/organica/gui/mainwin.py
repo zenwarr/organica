@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
                                              default_shortcut='Ctrl+Shift+N')
         cm.addNewCommand(self.closeActiveEnviron, 'Workspace.CloseActiveLibrary', tr('Close library'),
                                              default_shortcut='Ctrl+Shift+W', validator='LibraryActive')
+        cm.addNewCommand(self.showSettings, 'Workspace.ShowSettings', tr('Settings...'))
         cm.addNewCommand(self.addFiles, 'Library.AddFiles', tr('Add files'), validator='LibraryActive',
                                              default_shortcut='Ctrl+O')
         cm.addNewCommand(self.addDir, 'Library.AddDirectory', tr('Add directory'), validator='LibraryActive')
@@ -83,6 +84,8 @@ class MainWindow(QMainWindow):
         self.fileMenu.appendCommand('Workspace.LoadLibrary')
         self.fileMenu.appendCommand('Workspace.CreateLibrary')
         self.fileMenu.appendCommand('Workspace.CloseActiveLibrary')
+        self.fileMenu.appendSeparator()
+        self.fileMenu.appendCommand('Workspace.ShowSettings')
         self.fileMenu.appendSeparator()
         self.fileMenu.appendCommand('Application.Exit')
         self.menuBarContainer.appendContainer(self.fileMenu)
@@ -484,6 +487,12 @@ class MainWindow(QMainWindow):
             objects_model.filters = replaceInFilters(objects_model.filters, self.objectsSearchHint, search_filter)
 
             env.ui.objectsView.currentNode = current_node
+
+    def showSettings(self):
+        from organica.gui.settingsdialog import SettingsDialog
+
+        dialog = SettingsDialog(self)
+        dialog.exec_()
 
 
 _mainWindow = None
