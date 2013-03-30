@@ -110,6 +110,7 @@ class Settings(object):
         self.allSettings = {}
         self.registered = {}
         self.__strictControl = strict_control
+        self.__broken = False
 
     @property
     def filename(self):
@@ -157,6 +158,7 @@ class Settings(object):
                                     value = self.registered[key].default
                         self.allSettings[key] = value
             except Exception as err:
+                self.__broken = True
                 raise SettingsError('failed to load settings: {0}'.format(err))
 
     def save(self, keep_unregistered=True):
@@ -172,6 +174,25 @@ class Settings(object):
         with self.lock:
             try:
                 os.makedirs(os.path.dirname(self.filename), exist_ok=True)
+
+                if self.__broken:
+                    # if we failed to load settings from this file, it is possible that file syntax is incorrect.
+                    # To prevent loss of settings we rename old settings file to something like
+                    # "myapp.conf.broken-2013-03-30 21:45:15.878632".
+                    import datetime
+                    while True:
+                        new_filename = self.filename + '.broken-' + str(datetime.datetime.now())
+                        if not os.path.exists(new_filename):
+                            break
+
+                    try:
+                        os.rename(self.filename, new_filename)
+                    except OSError as err:
+                        if warningOutputRoutine is not None:
+                            warningOutputRoutine('failed to copy broken settings file {0} -> {1}'.format(self.filename, new_filename))
+
+                    self.__broken = False
+
                 with open(self.filename, 'w+t') as f:
                     settings = self.allSettings
 
