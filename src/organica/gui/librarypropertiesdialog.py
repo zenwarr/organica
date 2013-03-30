@@ -46,6 +46,8 @@ class LibraryPropertiesDialog(Dialog):
                     self.ui.cmbProfiles.model().addUnknownProfile(profile_uuid)
                 self.ui.cmbProfiles.setCurrentIndex(self.profilesModel.profileIndex(profile_uuid).row())
 
+            self.ui.chkAutoDeleteUnusedTags.setChecked(self.lib.autoDeleteUnusedTags)
+
             # load storage information
             storage_used = self.lib.storage is not None
             self.ui.chkUseStorage.setChecked(storage_used)
@@ -72,6 +74,8 @@ class LibraryPropertiesDialog(Dialog):
                 self.lib.profileUuid = None
             else:
                 self.lib.profileUuid = profile_uuid
+
+            self.lib.autoDeleteUnusedTags = self.ui.chkAutoDeleteUnusedTags.isChecked()
 
             storage_used = self.ui.chkUseStorage.isChecked()
             if self.lib.storage is not None and not storage_used:

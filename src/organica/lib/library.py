@@ -189,6 +189,7 @@ class Library(QObject, Lockable):
                                       class_id integer,
                                       value_type integer,
                                       value blob,
+                                      use_count integer,
                                       foreign key(class_id) references tag_classes(id));
 
                     create table links(node_id integer,
@@ -402,7 +403,7 @@ class Library(QObject, Lockable):
             self.classRemoved.emit(deepcopy(tag_class))
 
     def _tagsFromQuery(self, cursor):
-        """Get tag list from query results. Assume that rows are (id, class_id, value_type, value)
+        """Get tag list from query results. Assume that rows are (id, class_id, value_type, value, use_count)
         """
 
         with self.lock:
@@ -414,7 +415,10 @@ class Library(QObject, Lockable):
                         logger.log('invalid class_id for tag #{0}'.format(row[0]))
                         continue
                     try:
-                        tag = Tag(tag_class, TagValue.fromDatabaseForm(tag_class, row[3]))
+                        use_count = row[4]
+                        if use_count is None:
+                            use_count = 0
+                        tag = Tag(tag_class, TagValue.fromDatabaseForm(tag_class, row[3]), use_count)
                     except (TypeError, ObjectError):
                         logger.log('invalid tag #{0}'.format(row[0]))
                         continue
@@ -431,7 +435,7 @@ class Library(QObject, Lockable):
             return []
 
         with self.lock:
-            sql = 'select id, class_id, value_type, value from tags'
+            sql = 'select id, class_id, value_type, value, use_count from tags'
             if query.qeval() == -1:
                 sql = sql + ' where ' + query.generateSqlWhere()
             with self.cursor() as c:
@@ -485,12 +489,13 @@ class Library(QObject, Lockable):
                 return existing_tags[0]
 
             with self.transaction() as c:
-                c.execute('insert into tags(class_id, value_type, value) values(?, ?, ?)',
-                          (int(tag_class.id), int(tag_class.valueType), str(value.databaseForm)))
+                c.execute('insert into tags(class_id, value_type, value, use_count) values(?, ?, ?, ?)',
+                          (int(tag_class.id), int(tag_class.valueType), str(value.databaseForm), 0))
                 tag.identity = Identity(self, c.lastrowid)
 
-            # encache it
-            self._tags[tag.id] = deepcopy(tag)
+            tag_copy = deepcopy(tag)
+            tag_copy.useCount = 0  # sanitize useCount as we use it internally
+            self._tags[tag.id] = tag_copy
 
             # and notify
             self.tagCreated.emit(deepcopy(tag))
@@ -520,16 +525,18 @@ class Library(QObject, Lockable):
                             c.execute('update links set tag_class_id = ? where tag_id = ?',
                                       (tag_to_flush.tagClass.id, tag_to_flush.id))
 
-                    self._tags[tag_to_flush.id] = deepcopy(tag_to_flush)
+                    tag_copy = deepcopy(tag_to_flush)
+                    tag_copy.useCount = old_tag.useCount
+                    self._tags[tag_to_flush.id] = tag_copy
 
                     # update also cached nodes that depend on this tag. Node.updateTag
                     # method will replace saved tag value with new one, but will not
                     # query database if tags are not fetched. So we cannot determine
                     # which nodes depeneds on this tag and should call updateTag for each node.
                     for node in self._nodes.values():
-                        node.updateTag(tag_to_flush)
+                        node.updateTag(tag_copy)
 
-                    self.tagUpdated.emit(deepcopy(tag_to_flush), deepcopy(old_tag))
+                    self.tagUpdated.emit(deepcopy(self._tags[tag_to_flush.id]), deepcopy(old_tag))
 
             return tag_to_flush
 
@@ -551,8 +558,8 @@ class Library(QObject, Lockable):
                 if remove_links:
                     for node in self.nodes(NodeQuery(tags=TagQuery(identity=tag_to_remove))):
                         self.removeLink(node, tag_to_remove)
-                elif self.nodes(NodeQuery(tags=TagQuery(identity=tag_to_remove))):
-                    raise LibraryError('cannot remove tag while there are nodes linked with it')
+                elif unmodified_tag.useCount != 0:
+                     raise LibraryError('cannot remove tag while there are nodes linked with it')
 
                 c.execute('delete from tags where id = ?', (tag_to_remove.id, ))
 
@@ -562,6 +569,11 @@ class Library(QObject, Lockable):
 
             # notify about tag
             self.tagRemoved.emit(deepcopy(unmodified_tag))
+
+    def removeTagIfUnused(self, tag_to_remove):
+        tag_to_remove = self.tag(tag_to_remove)
+        if tag_to_remove.useCount == 0:
+            self.removeTag(tag_to_remove)
 
     def removeTags(self, tag_query, remove_links=False):
         """Remove tags from database.
@@ -623,7 +635,9 @@ class Library(QObject, Lockable):
                 elif self.tags(TagQuery(node_ref=node_to_remove)):
                     raise LibraryError('cannot remove node while there are references to it')
 
-                c.execute('delete from links where node_id = ?', (node_to_remove.id,))
+                for tag in unmodified_node.allTags:
+                    self.removeLink(unmodified_node, tag)
+
                 c.execute('delete from nodes where id = ?', (node_to_remove.id,))
 
             # update cache
@@ -743,8 +757,13 @@ class Library(QObject, Lockable):
                 c.execute('insert into links(node_id, tag_id, tag_class_id) values (?, ?, ?)',
                           (node.id, tag.id, tag.tagClass.id))
 
+                c.execute('update tags set use_count = use_count + 1 where id = ?', (tag.id, ))
+
             node.allTags = node.allTags + [tag]
             self._nodes[node.id] = node
+
+            if tag.id in self._tags:
+                self._tags[tag.id].useCount += 1
 
             self.linkCreated.emit(deepcopy(node), deepcopy(tag))
 
@@ -762,18 +781,22 @@ class Library(QObject, Lockable):
 
             node = self.node(node)
             if not node.testTag(tag):
-                raise LibraryError('link between node #{0} and tag #{1} does not exist' \
-                                   .format(node.id, tag.id))
+                raise LibraryError('link between node #{0} and tag #{1} does not exist'.format(node.id, tag.id))
             node.ensureTagsFetched()
 
             with self.transaction() as c:
-                c.execute('delete from links where node_id = ? and tag_id = ?',
-                          (node.id, tag.id))
+                c.execute('delete from links where node_id = ? and tag_id = ?', (node.id, tag.id))
 
             node.allTags = [t for t in node.allTags if t.identity != tag.identity]
             self._nodes[node.id] = node
 
+            if tag.id in self._tags:
+                self._tags[tag.id].useCount -= 1
+
             self.linkRemoved.emit(deepcopy(node), deepcopy(tag))
+
+            if self.autoDeleteUnusedTags:
+                self.removeTagIfUnused(tag)
 
     def _nodesFromQuery(self, cursor):
         """Get node list from SQL query results. Assumes that columns are (id, display_name)
@@ -963,3 +986,17 @@ class Library(QObject, Lockable):
 
                 stat.databaseSize = os.stat(self.databaseFilename).st_size
         return stat
+
+    MetaAutoDeleteUnusedTags = 'autodelete_tags'
+
+    @property
+    def autoDeleteUnusedTags(self):
+        saved_meta = self.getMeta(self.MetaAutoDeleteUnusedTags, 0)
+        try:
+            return bool(int(saved_meta))
+        except ValueError:
+            return False
+
+    @autoDeleteUnusedTags.setter
+    def autoDeleteUnusedTags(self, new_value):
+        self.setMeta(self.MetaAutoDeleteUnusedTags, str(int(new_value)))

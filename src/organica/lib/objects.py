@@ -414,12 +414,13 @@ class Tag(LibraryObject):
     class name.
     """
 
-    def __init__(self, tag_class=None, tag_value=None):
+    def __init__(self, tag_class=None, tag_value=None, use_count=0):
         super().__init__()
         self.value = TagValue(tag_value)
         if tag_class and not isinstance(tag_class, TagClass):
             raise TypeError('invalid argument: tag_class should be of TagClass type')
         self.tagClass = tag_class
+        self.useCount = use_count
 
     @property
     def value(self):
