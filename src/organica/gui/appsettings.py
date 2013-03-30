@@ -9,14 +9,14 @@ def doRegister():
 
     if not _is_registered:
         _settings_to_register = (
-                         ('log_file_name', None),
-                         ('default_error_policy', 'ask'),
-                         ('disabled_plugins', []),
-                         ('pool_operations_limit', 10),
-                         ('quick_search', True)
+                         ('log_file_name', None, str),
+                         ('default_error_policy', 'ask', str),
+                         ('disabled_plugins', [], (list, tuple)),
+                         ('pool_operations_limit', 10, int),
+                         ('quick_search', True, bool)
                          )
 
         s = globalSettings()
-        for key, default in _settings_to_register:
-            s.register(key, default)
+        for key, default, required_type in _settings_to_register:
+            s.register(key, default, required_type)
         _is_registered = True

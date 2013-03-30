@@ -145,9 +145,16 @@ class Settings(object):
                         raise SettingsError('invalid config file {0} format'.format(self.filename))
 
                     for key, value in settings.items():
-                        if self.__strictControl and key not in self.registered:
-                            if warningOutputRoutine is not None:
-                                warningOutputRoutine('unregistered setting in config file {0}: {1}'.format(self.filename, key))
+                        if self.__strictControl:
+                            if key not in self.registered:
+                                if warningOutputRoutine is not None:
+                                    warningOutputRoutine('unregistered setting in config file {0}: {1}'.format(self.filename, key))
+                            else:
+                                required_type = self.registered[key].requiredType
+                                if required_type and not isinstance(value, required_type):
+                                    if warningOutputRoutine is not None:
+                                        warningOutputRoutine('setting {0} has wrong type {1} ({2} required)'.format(key, type(value), required_type))
+                                    value = self.registered[key].default
                         self.allSettings[key] = value
             except Exception as err:
                 raise SettingsError('failed to load settings: {0}'.format(err))
@@ -217,7 +224,7 @@ class Settings(object):
             if setting_name in self.allSettings:
                 return self.allSettings[setting_name]
             elif setting_name in self.registered:
-                return self.registered[setting_name]
+                return self.registered[setting_name].default
             elif self.__strictControl:
                 raise SettingsError('reading unregistered setting %s' % setting_name)
             else:
@@ -230,7 +237,7 @@ class Settings(object):
 
         with self.lock:
             if setting_name in self.registered:
-                return self.registered[setting_name]
+                return self.registered[setting_name].default
             elif self.__strictControl:
                 raise SettingsError('reading unregistered setting %s' % setting_name)
             else:
@@ -242,21 +249,34 @@ class Settings(object):
         """
 
         with self.lock:
-            if self.__strictControl and setting_name not in self.registered:
-                raise SettingsError('writing unregistered setting %s' % setting_name)
+            if self.__strictControl:
+                if setting_name not in self.registered:
+                    raise SettingsError('writing unregistered setting %s' % setting_name)
+                else:
+                    required_type = self.registered[setting_name].requiredType
+                    if required_type and not isinstance(value, required_type):
+                        raise SettingsError('writting setting {0} with wrong type {1} ({2} expected)'.format(
+                            setting_name, type(value), required_type
+                        ))
 
-            if setting_name in self.registered and self.registered[setting_name] == value:
+            if setting_name in self.registered and self.registered[setting_name].default == value:
                 del self.allSettings[setting_name]
             else:
                 self.allSettings[setting_name] = value
 
-    def register(self, setting_name, default_value=None):
-        """Register setting with specified name and given default value.
+    def register(self, setting_name, default_value=None, required_type=None):
+        """Register setting with specified name, given default value and required type. required_type argument can
+        be tuple of types.
         """
 
         with self.lock:
             if setting_name not in self.registered:
-                self.registered[setting_name] = default_value
+                class SettingData(object):
+                    def __init__(self, default, required_type):
+                        self.default = default
+                        self.requiredType = required_type
+
+                self.registered[setting_name] = SettingData(default_value, required_type)
             elif self.registered[setting_name] != default_value:
                 raise SettingsError('cannot register setting {0}: another one registered with this name'
                                    .format(setting_name))

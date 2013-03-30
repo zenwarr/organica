@@ -128,15 +128,16 @@ class PluginError(Exception):
     pass
 
 
-class PluginManager(Lockable):
+class PluginManager(QObject, Lockable):
     PLUGINS_DIR_NAME = 'plugins'
     PLUGIN_CONFIG_FILENAME = 'plugin.info'
     PLUGIN_MAIN_MODULE = 'plugin.py'
 
     pluginLoaded = pyqtSignal(PluginInfo)
-    pluginUnload = pyqtSignal(PluginInfo)
+    pluginUnloaded = pyqtSignal(PluginInfo)
 
     def __init__(self):
+        QObject.__init__(self)
         Lockable.__init__(self)
         self.__allPlugins = []
 
