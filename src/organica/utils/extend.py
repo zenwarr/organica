@@ -111,17 +111,33 @@ class PluginInfo(object):
     def __str__(self):
         return self.uuid
 
+    def __deepcopy__(self, memo):
+        copied = PluginInfo()
+        copied.path = self.path
+        copied.uuid = self.uuid
+        copied.name = self.name
+        copied.description = self.description
+        copied.authors = copy.deepcopy(self.authors)
+        copied.module = self.module
+        copied.plugin_object = self.plugin_object
+        copied.loaded = self.loaded
+        return copied
+
 
 class PluginError(Exception):
     pass
 
 
-class PluginManager(object):
+class PluginManager(Lockable):
     PLUGINS_DIR_NAME = 'plugins'
     PLUGIN_CONFIG_FILENAME = 'plugin.info'
     PLUGIN_MAIN_MODULE = 'plugin.py'
 
+    pluginLoaded = pyqtSignal(PluginInfo)
+    pluginUnload = pyqtSignal(PluginInfo)
+
     def __init__(self):
+        Lockable.__init__(self)
         self.__allPlugins = []
 
     def loadPlugins(self):
@@ -236,6 +252,7 @@ class PluginManager(object):
             else:
                 plugin.loaded = False
                 plugin.module = plugin.plugin_object = None
+                self.pluginUnloaded.emit(plugin)
 
     def __loadPlugin(self, plugin):
         config_filename = os.path.join(plugin.path, self.PLUGIN_CONFIG_FILENAME)
@@ -272,6 +289,7 @@ class PluginManager(object):
             raise PluginError('error during loading module: {0}'.format(err))
 
         self.__initPlugin(plugin)
+        self.pluginLoaded.emit(plugin)
 
         return plugin
 
