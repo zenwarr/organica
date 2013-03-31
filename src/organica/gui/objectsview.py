@@ -148,6 +148,7 @@ class LocatorChooseDialog(Dialog):
             launch_url = locator.launchUrl.toLocalFile() if locator.launchUrl.isLocalFile() else locator.launchUrl.toString()
             item = QListWidgetItem(locator.icon, launch_url)
             self.list.addItem(item)
+        self.list.itemActivated.connect(self.accept)
 
         self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self)
         self.buttonBox.accepted.connect(self.accept)
