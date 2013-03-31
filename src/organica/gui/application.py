@@ -5,6 +5,7 @@ import argparse
 import threading
 import locale
 
+from PyQt4.QtCore import QTextCodec
 from PyQt4.QtGui import QApplication
 
 from organica.utils.settings import globalSettings, globalQuickSettings, SettingsError
@@ -46,6 +47,8 @@ class Application(QApplication):
         logging.basicConfig()
 
         constants.gui_thread = threading.current_thread()
+
+        QTextCodec.setCodecForCStrings(QTextCodec.codecForName('UTF-8'))
 
         # detect if we are running in portable mode. Portable mode is turning off
         # if installation.mark file exist in application directory.

@@ -207,7 +207,7 @@ class NodeEditDialog(Dialog):
                     full_filename = removeLastSlash(choosen_locator.localFilePath)
                     item.setText(os.path.basename(full_filename))
                 else:
-                    item.setText(choosen_locator.url)
+                    item.setText(choosen_locator.url.toString())
                 item.setIcon(choosen_locator.icon)
 
             node_copy = copy.deepcopy(node)

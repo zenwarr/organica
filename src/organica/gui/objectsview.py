@@ -1,5 +1,5 @@
 import logging
-from PyQt4.QtCore import Qt, QModelIndex
+from PyQt4.QtCore import Qt, QModelIndex, QUrl
 from PyQt4.QtGui import QWidget, QTreeView, QVBoxLayout, QDesktopServices, QLabel, QListWidget, QListWidgetItem, \
                         QDialogButtonBox, QDialog, QMenu, QAction, QMessageBox
 from organica.lib.objectsmodel import ObjectsModel

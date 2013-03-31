@@ -59,9 +59,8 @@ class Locator(object):
 
     @staticmethod
     def fromUrl(url, lib=None, source_url=None):
-        url = QUrl(url)
-        if cicompare(url.scheme(), Locator.MANAGED_FILES_SCHEME):
-            return Locator.fromManagedFile(url.path(), lib, source_url)
+        if cicompare(QUrl(url).scheme(), Locator.MANAGED_FILES_SCHEME):
+            return Locator.fromManagedFile(QUrl(url).path(), lib, source_url)
         else:
             return Locator(url, source_url)
 
