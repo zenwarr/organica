@@ -539,7 +539,7 @@ class SearchPanel(QWidget):
             if event.type() == QEvent.FocusOut:
                 globalSearchHistoryModel().addToHistory(self.cmbSearch.currentText())
             elif event.type() == QEvent.KeyPress:
-                if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Enter:
+                if event.modifiers() == Qt.NoModifier and event.key() in (Qt.Key_Enter, Qt.Key_Return):
                     text = self.cmbSearch.currentText()
                     self.searchRequested.emit(text)
                     globalSearchHistoryModel().addToHistory(text)
