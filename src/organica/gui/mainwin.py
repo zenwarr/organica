@@ -309,7 +309,6 @@ class MainWindow(QMainWindow):
         quick_search = s['quick_search']
         if not isinstance(quick_search, bool):
             quick_search = True
-        ui.searchPanel.quickSearch = quick_search
         ui.searchPanel.searchRequested.connect(self.search)
         ui.searchPanel.hide()
 
@@ -531,6 +530,10 @@ class SearchPanel(QWidget):
         self.cmbSearch.setModel(globalSearchHistoryModel())
         self.cmbSearch.installEventFilter(self)
 
+        with globalSettings().lock:
+            self.quickSearch = globalSettings()['quick_search']
+            globalSettings().settingChanged.connect(self.__onSettingChanged)
+
     def eventFilter(self, obj, event):
         if obj is self.cmbSearch:
             if event.type() == QEvent.FocusOut:
@@ -555,6 +558,10 @@ class SearchPanel(QWidget):
 
     def endSearch(self):
         globalSearchHistoryModel().addToHistory(self.cmbSearch.currentText())
+
+    def __onSettingChanged(self, name, value):
+        if name == 'quick_search':
+            self.quickSearch = value
 
 
 class SearchHistoryModel(QStandardItemModel):

@@ -1,8 +1,10 @@
 import os
 import logging
 import json
+import copy
 
 from PyQt4.QtCore import QObject, pyqtSignal, QUuid
+from PyQt4.QtGui import QIcon
 
 from organica.utils.lockable import Lockable
 from organica.utils.settings import globalSettings
@@ -105,22 +107,19 @@ class PluginInfo(object):
         self.description = ''
         self.authors = []
         self.module = None
-        self.plugin_object = None
+        self.pluginObject = None
         self.loaded = False
+        self.enabled = False
+        self.loadError = None
+        self.icon = QIcon()
 
     def __str__(self):
         return self.uuid
 
     def __deepcopy__(self, memo):
-        copied = PluginInfo()
-        copied.path = self.path
-        copied.uuid = self.uuid
-        copied.name = self.name
-        copied.description = self.description
+        copied = copy.copy(self)
         copied.authors = copy.deepcopy(self.authors)
-        copied.module = self.module
-        copied.plugin_object = self.plugin_object
-        copied.loaded = self.loaded
+        copied.loadError = copy.deepcopy(self.loadError)
         return copied
 
 
@@ -140,6 +139,9 @@ class PluginManager(QObject, Lockable):
         QObject.__init__(self)
         Lockable.__init__(self)
         self.__allPlugins = []
+
+        s = globalSettings()
+        s.settingChanged.connect(self.__onSettingChanged)
 
     def loadPlugins(self):
         """Load all plugins from plugins directory. Should be called once on program startup. Disabled plugins
@@ -163,7 +165,8 @@ class PluginManager(QObject, Lockable):
                     try:
                         self.__loadPlugin(plugin)
                     except PluginError as err:
-                        logger.error('failed to load plugin from {0}: {1}'.format(path, err))
+                        logger.error('...failed to load plugin from {0}: {1}'.format(path, err))
+                        plugin.loadError = err
                     else:
                         logger.debug('...loaded successfully')
                     self.__allPlugins.append(plugin)
@@ -199,19 +202,29 @@ class PluginManager(QObject, Lockable):
         if plugin is None:
             raise PluginError('plugin {0} not found'.format(plugin))
 
-        disabled_plugins_uuids = globalSettings()['disabled_plugins']
-        if (plugin.uuid not in disabled_plugins_uuids) != is_enabled:
+        disabled_plugin_uuids = globalSettings()['disabled_plugins']
+        if (plugin.uuid not in disabled_plugin_uuids) != is_enabled:
             if is_enabled:
                 # remove uuid from list and reload given plugin
-                disabled_plugins_uuids = [uuid for uuid in disabled_plugins_uuids if uuid != plugin.uuid]
+                disabled_plugin_uuids = [uuid for uuid in disabled_plugin_uuids if uuid != plugin.uuid]
+            else:
+                # add to list and unload plugin
+                disabled_plugin_uuids.append(plugin.uuid)
+            globalSettings()['disabled_plugins'] = disabled_plugin_uuids
+
+    def __enablePlugin(self, plugin, is_enabled=True):
+        plugin = self.__getPlugin(plugin)
+        if plugin is None:
+            raise PluginError('plugin {0} not found'.format(plugin))
+
+        if plugin.enabled != is_enabled:
+            plugin.enabled = is_enabled
+            if is_enabled:
                 if not plugin.loaded:
                     self.reloadPlugin(plugin)
             else:
-                # add to list and unload plugin
-                disabled_plugins_uuids.append(plugin.uuid)
                 if plugin.loaded:
                     self.unloadPlugin(plugin)
-            globalSettings()['disabled_plugins'] = disabled_plugins_uuids
 
     def reloadPlugin(self, plugin):
         plugin = self.__getPlugin(plugin)
@@ -243,8 +256,8 @@ class PluginManager(QObject, Lockable):
         if plugin.loaded:
             try:
                 # call unload routine if exist
-                if plugin.plugin_object is not None and hasattr(plugin.plugin_object, 'onUnload'):
-                    plugin.plugin_object.onUnload()
+                if plugin.pluginObject is not None and hasattr(plugin.pluginObject, 'onUnload'):
+                    plugin.pluginObject.onUnload()
 
                 # remove objects associated with plugin
                 globalObjectPool().removeExtensionObjects(plugin.uuid)
@@ -252,7 +265,7 @@ class PluginManager(QObject, Lockable):
                 raise PluginError('error while unloading plugin {0}: {1}'.format(plugin.name, str(err)))
             else:
                 plugin.loaded = False
-                plugin.module = plugin.plugin_object = None
+                plugin.module = plugin.pluginObject = None
                 self.pluginUnloaded.emit(plugin)
 
     def __loadPlugin(self, plugin):
@@ -266,7 +279,13 @@ class PluginManager(QObject, Lockable):
                 plugin.uuid = str(info_data.get('uuid'))
                 plugin.name = str(info_data.get('name'))
                 plugin.description = str(info_data.get('description'))
-                plugin.authors = str(info_data.get('authors'))
+                authors = info_data.get('authors')
+                if not isinstance(authors, (tuple, list)):
+                    authors = [str(authors)]
+                plugin.authors = authors
+                plugin.icon = info_data.get('icon')
+                if not isinstance(plugin.icon, QIcon):
+                    plugin.icon = QIcon()
             except:
                 raise PluginError('invalid {0} file'.format(config_filename))
 
@@ -277,6 +296,10 @@ class PluginManager(QObject, Lockable):
         # check if name is valid
         if not plugin.name:
             raise PluginError('name is invalid')
+
+        plugin.enabled = plugin.uuid not in globalSettings()['disabled_plugins']
+        if not plugin.enabled:
+            return plugin
 
         # import module file
         try:
@@ -312,15 +335,27 @@ class PluginManager(QObject, Lockable):
             if not hasattr(plugin.module, 'Plugin'):
                 raise PluginError('module does not have \'Plugin\' attribute')
 
-            plugin.plugin_object = plugin.module.Plugin()
+            plugin.pluginObject = plugin.module.Plugin()
 
-            if hasattr(plugin.plugin_object, 'onLoad'):
-                plugin.plugin_object.onLoad()
+            if hasattr(plugin.pluginObject, 'onLoad'):
+                plugin.pluginObject.onLoad()
 
             plugin.loaded = True
         except Exception as err:
-            plugin.module = plugin.plugin_object = None
+            plugin.module = plugin.pluginObject = None
             raise PluginError('error during initialization: {0}'.format(err))
+
+    def __isPluginEnabled(self, plugin):
+        plugin = self.__getPlugin(plugin)
+        if plugin is not None:
+            return plugin.uuid not in globalSettings()['disabled_plugins']
+
+    def __onSettingChanged(self, setting_name, new_value):
+        if setting_name == 'disabled_plugins':
+            for plugin_info in self.__allPlugins:
+                plugin_now_enabled = self.__isPluginEnabled(plugin_info)
+                if plugin_info.enabled != plugin_now_enabled:
+                    self.__enablePlugin(plugin_info, plugin_now_enabled)
 
 
 _globalPluginManager = None

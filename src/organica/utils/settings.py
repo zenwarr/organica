@@ -77,6 +77,8 @@ import os
 import sys
 import json
 import threading
+import copy
+from PyQt4.QtCore import QObject, pyqtSignal
 
 
 class SettingsError(Exception):
@@ -103,8 +105,11 @@ defaultSettingsDirectory = ''
 warningOutputRoutine = None
 
 
-class Settings(object):
+class Settings(QObject):
+    settingChanged = pyqtSignal(str, object)
+
     def __init__(self, filename, strict_control=False):
+        QObject.__init__(self)
         self.lock = threading.RLock()
         self.__filename = filename
         self.allSettings = {}
@@ -223,7 +228,12 @@ class Settings(object):
         with self.lock:
             if os.path.exists(self.filename):
                 os.remove(self.filename)
+
+            changed_settings = self.allSettings.keys()
             self.allSettings = {}
+            if self.__strictControl:
+                for changed_setting in changed_settings:
+                    self.settingChanged.emit(changed_setting, self.defaultValue(changed_setting))
 
     def resetSetting(self, setting_name):
         """Reset only single setting to its default value. SettingsError raised if this setting is not registered.
@@ -233,7 +243,10 @@ class Settings(object):
         with self.lock:
             if self.__strictControl and setting_name not in self.registered:
                 raise SettingsError('writing unregistered setting %s' % setting_name)
-            del self.allSettings[setting_name]
+            if setting_name in self.allSettings:
+                del self.allSettings[setting_name]
+                if self.__strictControl:
+                    self.settingChanged.emit(setting_name, self.defaultValue(setting_name))
 
     def get(self, setting_name):
         """Return value of setting with given name. In strict mode, trying to get value of unregistered setting that does not exist
@@ -243,9 +256,9 @@ class Settings(object):
 
         with self.lock:
             if setting_name in self.allSettings:
-                return self.allSettings[setting_name]
+                return copy.deepcopy(self.allSettings[setting_name])
             elif setting_name in self.registered:
-                return self.registered[setting_name].default
+                return copy.deepcopy(self.registered[setting_name].default)
             elif self.__strictControl:
                 raise SettingsError('reading unregistered setting %s' % setting_name)
             else:
@@ -258,7 +271,7 @@ class Settings(object):
 
         with self.lock:
             if setting_name in self.registered:
-                return self.registered[setting_name].default
+                return copy.deepcopy(self.registered[setting_name].default)
             elif self.__strictControl:
                 raise SettingsError('reading unregistered setting %s' % setting_name)
             else:
@@ -281,9 +294,13 @@ class Settings(object):
                         ))
 
             if setting_name in self.registered and self.registered[setting_name].default == value:
-                del self.allSettings[setting_name]
+                if setting_name in self.allSettings:
+                    del self.allSettings[setting_name]
             else:
                 self.allSettings[setting_name] = value
+
+            if self.__strictControl:
+                self.settingChanged.emit(setting_name, copy.deepcopy(value))
 
     def register(self, setting_name, default_value=None, required_type=None):
         """Register setting with specified name, given default value and required type. required_type argument can
