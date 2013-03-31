@@ -128,6 +128,9 @@ class SettingsDialog(Dialog):
             selection_model.currentChanged.connect(self.__onCurrentPluginChanged)
             self.__onCurrentPluginChanged(self.ui.lstPlugins.currentIndex())
 
+            from organica.gui.application import globalApplication
+            self.ui.lblPluginsWarning.setVisible(globalApplication().arguments.disablePlugins)
+
     def accept(self):
         self.__save()
         Dialog.accept(self)

@@ -58,6 +58,19 @@
        <widget class="QWidget" name="pagePlugins">
         <layout class="QVBoxLayout" name="verticalLayout_2">
          <item>
+          <widget class="QLabel" name="lblPluginsWarning">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600; color:#ff0000;&quot;&gt;Application has been started with parameters that prevent loading plugins. Changes will be applied only after restart.&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="textFormat">
+            <enum>Qt::RichText</enum>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QListView" name="lstPlugins">
            <property name="contextMenuPolicy">
             <enum>Qt::CustomContextMenu</enum>

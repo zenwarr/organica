@@ -148,6 +148,7 @@ class PluginManager(QObject, Lockable):
         will not be loaded. If plugins directory does not exist, no error will be raised.
         If any plugin fails to load, no error will be raised to let other plugins be loaded.
         """
+
         logger.debug('loading plugins from {0}'.format(self.pluginsPath))
 
         if not os.path.exists(self.pluginsPath):
@@ -283,9 +284,12 @@ class PluginManager(QObject, Lockable):
                 if not isinstance(authors, (tuple, list)):
                     authors = [str(authors)]
                 plugin.authors = authors
-                plugin.icon = info_data.get('icon')
-                if not isinstance(plugin.icon, QIcon):
-                    plugin.icon = QIcon()
+
+                icon_path = info_data.get('icon')
+                if isinstance(icon_path, str):
+                    if not os.path.isabs(icon_path):
+                        icon_path = os.path.join(plugin.path, icon_path)
+                    plugin.icon = QIcon(icon_path)
             except:
                 raise PluginError('invalid {0} file'.format(config_filename))
 
@@ -299,6 +303,11 @@ class PluginManager(QObject, Lockable):
 
         plugin.enabled = plugin.uuid not in globalSettings()['disabled_plugins']
         if not plugin.enabled:
+            return plugin
+
+        from organica.gui.application import globalApplication
+        if globalApplication().arguments.disablePlugins:
+            plugin.loadError = 'plugins are disabled'
             return plugin
 
         # import module file

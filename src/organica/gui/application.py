@@ -28,7 +28,7 @@ def runApplication():
     locale.setlocale(locale.LC_ALL, '')
     os.chdir(os.path.expanduser('~'))
 
-    app = Application()
+    app = globalApplication()
     app.startUp()
     return_code = app.exec_()
     app.shutdown()
@@ -42,6 +42,8 @@ class Application(QApplication):
         self.setOrganizationName('zenwarr')
         self.setOrganizationDomain('http://github.org/zenwarr/organica')
         self.setApplicationVersion('0.0.1 indev')
+        self.argparser = None
+        self.arguments = object()
 
     def startUp(self):
         logging.basicConfig()
@@ -107,14 +109,16 @@ class Application(QApplication):
                                 version='Organica ' + self.applicationVersion(),
                                 help='show application version and exit')
         self.argparser.add_argument('files', nargs='?')
-        self.argparser.add_argument('--reset-settings', dest='reset_settings',
+        self.argparser.add_argument('--reset-settings', dest='resetSettings',
                                     action='store_true',
                                     help='reset application settings to defaults')
+        self.argparser.add_argument('--disable-plugins', dest='disablePlugins', action='store_true',
+                                    help='do not load any plugins')
 
         # parse arguments
-        arguments = self.argparser.parse_args()
+        self.arguments = self.argparser.parse_args()
 
-        if arguments.reset_settings:
+        if self.arguments.resetSettings:
             globalSettings().reset()
             globalQuickSettings().reset()
         else:
