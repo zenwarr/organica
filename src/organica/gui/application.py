@@ -124,6 +124,10 @@ class Application(QApplication):
         else:
             try:
                 globalSettings().load()
+            except SettingsError as err:
+                logger.error(err)
+
+            try:
                 globalQuickSettings().load()
             except SettingsError as err:
                 logger.error(err)
