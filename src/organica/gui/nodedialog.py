@@ -100,18 +100,7 @@ class NodeEditDialog(Dialog):
             globalObjectPool().objectAdded.connect(self.__onObjectAdded)
             globalObjectPool().objectRemoved.connect(self.__onObjectRemoved)
 
-        # restore saved dialog geometry
-        qs = globalQuickSettings()
-        geom = qs['nodeEditor_geometry']
-        if geom:
-            self.restoreGeometry(QByteArray.fromHex(geom))
-
         self.__setNodes(nodes)
-
-    def closeEvent(self, close_event):
-        # save dialog geometry
-        qs = globalQuickSettings()
-        qs['nodeEditor_geometry'] = str(self.saveGeometry().toHex(), encoding='ascii')
 
     def addEditor(self, provider):
         """Add editor from extension object that should have NODE_EDITOR_PROVIDER_GROUP.
