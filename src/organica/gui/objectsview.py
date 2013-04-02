@@ -1,7 +1,8 @@
 import logging
+import copy
 from PyQt4.QtCore import Qt, QModelIndex, QUrl
 from PyQt4.QtGui import QWidget, QTreeView, QVBoxLayout, QDesktopServices, QLabel, QListWidget, QListWidgetItem, \
-                        QDialogButtonBox, QDialog, QMenu, QAction, QMessageBox
+                        QDialogButtonBox, QDialog, QMenu, QAction, QMessageBox, QBrush
 from organica.lib.objectsmodel import ObjectsModel
 from organica.gui.selectionmodel import WatchingSelectionModel
 from organica.gui.actions import globalCommandManager
@@ -86,7 +87,7 @@ class ObjectsView(QWidget):
             return
         elif len(locators) > 1:
             # let user to choose locator
-            dlg = LocatorChooseDialog(self, locators)
+            dlg = LocatorChooseDialog(self, locators, item)
             if dlg.exec_() != LocatorChooseDialog.Accepted:
                 return
             url = dlg.selectedLocator.launchUrl
@@ -133,9 +134,10 @@ class ObjectsView(QWidget):
 
 
 class LocatorChooseDialog(Dialog):
-    def __init__(self, parent, locators):
+    def __init__(self, parent, locators, node):
         Dialog.__init__(self, parent, name='locator_choose_dialog')
         self.locators = locators
+        self.node = copy.deepcopy(node)
 
         self.setWindowTitle(tr('Select locator to use'))
 
@@ -147,6 +149,8 @@ class LocatorChooseDialog(Dialog):
         for locator in self.locators:
             launch_url = locator.launchUrl.toLocalFile() if locator.launchUrl.isLocalFile() else locator.launchUrl.toString()
             item = QListWidgetItem(locator.icon, launch_url)
+            if locator.broken:
+                item.setForeground(QBrush(Qt.red))
             self.list.addItem(item)
         self.list.itemActivated.connect(self.accept)
 

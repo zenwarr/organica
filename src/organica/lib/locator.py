@@ -123,3 +123,14 @@ class Locator(object):
             return self.localFilePath
         else:
             return node.lib.storage.getStoragePath(self.sourceUrl.toString(), node)
+
+    @property
+    def broken(self):
+        """Check if locator is invalid. Locator considered to be broken if resource it points to does not exist or
+        cannot be located.
+        """
+        if self.isLocalFile:
+            if self.isManagedFile and (self.lib is None or self.lib.storage is None):
+                return True
+            return not os.path.exists(self.localFilePath)
+        return True
