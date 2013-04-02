@@ -150,7 +150,7 @@ class SettingsDialog(Dialog):
     def __saveStandardPage(self, page_data):
         s = globalSettings()
         if page_data.page is self.ui.pageGeneral:
-            s['quick_search'] = self.ui.chkQuickSearch.isChecked() == Qt.Checked
+            s['quick_search'] = self.ui.chkQuickSearch.isChecked()
         elif page_data.page is self.ui.pagePlugins:
             self.pluginsModel.save()
 

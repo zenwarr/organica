@@ -456,6 +456,7 @@ class MainWindow(QMainWindow):
         if env is not None and env.ui.searchPanel.isVisible():
             env.ui.searchPanel.endSearch()
             env.ui.searchPanel.hide()
+            self.search('')  # restore ObjectsView filters
 
     def keyPressEvent(self, event):
         if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Escape:
