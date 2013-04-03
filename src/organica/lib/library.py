@@ -754,6 +754,12 @@ class Library(QObject, Lockable):
             node.ensureTagsFetched()
 
             with self.transaction() as c:
+                locator_class = self.tagClass('locator')
+                if locator_class is not None and tag.tagClass == locator_class:
+                    c.execute('select use_count from tags where id = ?', (tag.id, ))
+                    if c.fetchone()[0] > 0:
+                        raise LibraryError('tags of special locator class cannot be used more than once')
+
                 c.execute('insert into links(node_id, tag_id, tag_class_id) values (?, ?, ?)',
                           (node.id, tag.id, tag.tagClass.id))
 
