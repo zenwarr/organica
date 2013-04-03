@@ -666,3 +666,9 @@ class Node(LibraryObject):
         if self.isFlushed:
             self.lib.removeNode(self, remove_references)
             self.identity = Identity(self.lib)
+
+    @property
+    def resources(self):
+        from organica.lib.filters import TagQuery
+
+        return [tag.value.locator for tag in self.tags(TagQuery(tag_class='locator'))]

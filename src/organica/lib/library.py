@@ -1006,3 +1006,7 @@ class Library(QObject, Lockable):
     @autoDeleteUnusedTags.setter
     def autoDeleteUnusedTags(self, new_value):
         self.setMeta(self.MetaAutoDeleteUnusedTags, str(int(new_value)))
+
+    def getNodeForResource(self, locator):
+        nodes = self.nodes(NodeQuery(tag_locator=TagValue(locator)))
+        return nodes[0] if nodes else None
