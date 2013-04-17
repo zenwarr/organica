@@ -299,11 +299,15 @@ class AddTagDialog(Dialog):
         self.lblValueType.setText(tr('(of type {0})').format(TagValue.typeString(value_type)))
 
     def __addClass(self):
-        CreateClassDialog(self, self.lib).exec_()
+        dlg = CreateClassDialog(self, self.lib)
+        if dlg.exec_() == QDialog.Accepted and dlg.createdClass is not None:
+            row = self.classNameModel.classIndex(dlg.createdClass).row()
+            if row >= 0:
+                self.classNameCombo.setCurrentIndex(row)
 
     def accept(self):
         if not self.lib.tagClass(self.classNameCombo.currentText()):
-            QMessageBox.information(self, tr('Error'), tr('No tag class {0} in current library!' \
+            QMessageBox.information(self, tr('Error'), tr('No tag class {0} in current library!'
                             .format(self.classNameCombo.text())))
         else:
             QDialog.accept(self)
@@ -322,6 +326,7 @@ class CreateClassDialog(Dialog):
     def __init__(self, parent, lib):
         Dialog.__init__(self, parent, name='generic_new_class_dialog')
         self.lib = lib
+        self.__createdClass = None
 
         self.setWindowTitle(tr('New class'))
 
@@ -359,6 +364,10 @@ class CreateClassDialog(Dialog):
             QMessageBox.warning(self, tr('Error while creating class'), tr('Failed to create class: {0}').format(err))
         else:
             QDialog.accept(self)
+
+    @property
+    def createdClass(self):
+        return self.__createdClass
 
 
 class ClassNameValidator(QValidator):
