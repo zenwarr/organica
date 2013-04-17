@@ -377,4 +377,7 @@ class ClassNameValidator(QValidator):
     def validate(self, input, pos):
         from organica.lib.objects import isCorrectIdent
 
+        if not input:
+            return self.Intermediate, input, pos
+
         return (self.Acceptable, input, pos) if isCorrectIdent(input) else (self.Invalid, input, pos)
