@@ -1,6 +1,6 @@
 import os
 
-from PyQt4.QtGui import QWizard, QWizardPage, QLineEdit, QFormLayout, QLabel, \
+from PyQt4.QtGui import QWizard, QWizardPage, QLineEdit, QFormLayout, QLabel, QItemSelectionModel, \
                         QListView, QMessageBox, QVBoxLayout, QFileDialog, QCheckBox, QWidget
 from PyQt4.QtCore import QFileInfo, pyqtProperty
 
@@ -9,6 +9,7 @@ from organica.gui.profiles import getProfile, genericProfile
 from organica.gui.profilesmodel import ProfilesModel
 from organica.lib.library import Library
 from organica.gui.patheditwidget import PathEditWidget
+from organica.utils.extend import globalObjectPool
 
 
 class CreateLibraryWizard(QWizard):
@@ -40,11 +41,11 @@ class CreateLibraryWizard(QWizard):
 
         if self.field('use_storage'):
             storage = LocalStorage.fromDirectory(self.field('storage_path'))
-            storage.pathTemplate = self.field('path_template')
             try:
-                storage.saveMetafile()
+                storage.pathTemplate = self.field('path_template')
             except Exception as err:
-                QMessageBox.warning(self, tr('Error'), tr('Failed to write storage metafile: {0}'.format(err)))
+                QMessageBox.warning(self, tr('Error'), tr('Failed to intialize storage: {0}'.format(err)))
+                storage = None
             newlib.storage = storage
 
         return newlib
@@ -85,17 +86,20 @@ class ProfilePage(QWizardPage):
         self.label.setWordWrap(True)
         self.label.setText(tr('Profile:'))
 
-        self.profilesModel = ProfilesModel()
+        self.profilesModel = ProfilesModel(show_default=True)
 
         self.profileList = QListView(self)
         self.profileList.setModel(self.profilesModel)
+        selection_model = QItemSelectionModel(self.profilesModel)
+        selection_model.currentChanged.connect(self.completeChanged)
+        self.profileList.setSelectionModel(selection_model)
 
         # let generic profile be selected by default
         generic_profile = genericProfile()
         if generic_profile is not None:
             self.profileList.setCurrentIndex(self.profilesModel.profileIndex(generic_profile))
 
-        if not self.profilesModel.rowCount():
+        if not globalObjectPool().objects(group='profile'):
             QMessageBox.information(self, tr('Creating library'),
                     tr('You have no profiles installed. Although you can still create '
                     'libraries, it is better to install extensions providing profiles you need'))
@@ -112,6 +116,9 @@ class ProfilePage(QWizardPage):
         cindex = self.profileList.currentIndex()
         return cindex.data(ProfilesModel.ProfileRole).uuid if cindex.isValid() else ''
 
+    def isComplete(self):
+        return self.profileList.currentIndex().isValid()
+
 
 class DatabasePage(QWizardPage):
     def __init__(self, parent):
@@ -121,7 +128,7 @@ class DatabasePage(QWizardPage):
         self.setSubTitle(tr('Select where library database file will be located'))
 
         self.pathEdit = PathEditWidget(self)
-        self.pathEdit.pathChanged.connect(self.__onPathChanged)
+        self.pathEdit.pathChanged.connect(self.completeChanged)
         self.pathEdit.fileDialog.setFileMode(QFileDialog.AnyFile)
         self.pathEdit.fileDialog.setNameFilters(['Organica library files (*.orl)'])
 
@@ -141,15 +148,12 @@ class DatabasePage(QWizardPage):
     def validatePage(self):
         if QFileInfo(self.databaseFilename).exists():
             answer_button = QMessageBox.question(self, tr('Database file exists'),
-                     tr('Choosen database file already exist and can be used by another library. '
-                     'Replacing it will cause loss of information stored in existing database.\n\n'
-                     'Do you really want to replace existing database file?'),
+                     tr('Chosen database file already exist and can be used by another library. '
+                        'Replacing it will cause loss of information stored in existing database.\n\n'
+                        'Do you really want to replace existing database file?'),
                      QMessageBox.Yes | QMessageBox.No)
             return answer_button == QMessageBox.Yes
         return True
-
-    def __onPathChanged(self, new_path):
-        self.completeChanged.emit()
 
 
 class StoragePage(QWizardPage):
@@ -204,9 +208,9 @@ class StoragePage(QWizardPage):
     def validatePage(self):
         from organica.lib.storage import LocalStorage
 
-        # check if storage directory choosen is storage already
+        # check if storage directory chosen is storage already
         if LocalStorage.isDirectoryStorage(self.pathEdit.path):
-            ans = QMessageBox.question(self, tr('Directory is storage'), tr('It seems like choosen directory already '
+            ans = QMessageBox.question(self, tr('Directory is storage'), tr('It seems like chosen directory already '
                              'used as storage. Old parameters will be imported (remove meta.storage file to '
                              'reset storage parameters). Really use this directory?'),
                              QMessageBox.Yes | QMessageBox.No)

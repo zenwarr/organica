@@ -25,7 +25,7 @@ gui_thread = None
 # Use Qt.DirectConnection instead of Qt.QueuedConnection in sets.Set classes.
 disable_set_queued_connections = False
 
-debug_plugins = True
+debug_mode = True
 
 test_run = False
 

@@ -8,7 +8,7 @@ class ProfilesModel(QStandardItemModel):
     ProfileRole = Qt.UserRole + 200
     ProfileUuidRole = Qt.UserRole + 201
 
-    def __init__(self, show_default=True):
+    def __init__(self, show_default=False):
         QStandardItemModel.__init__(self)
 
         self.setColumnCount(1)

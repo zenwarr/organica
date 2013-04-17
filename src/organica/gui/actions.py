@@ -1,10 +1,10 @@
 import os
 import json
-
+import copy
 from PyQt4.QtCore import QObject, pyqtSignal
 from PyQt4.QtGui import QAction, QKeySequence, QMenuBar, QMenu, QToolBar
-
 import organica.utils.constants as constants
+from organica.utils.helpers import tr, first, readJsonFile
 
 
 class Command(QAction):
@@ -40,7 +40,7 @@ class Command(QAction):
             self.__validator.stateChanged.disconnect(self.setEnabled)
 
         self.__validator = new_validator
-        self.setEnabled(not self.__validator or self.__validator.isActive)
+        self.setEnabled(self.__validator is None or self.__validator.isActive)
         if self.__validator is not None:
             self.__validator.activeChanged.connect(self.setEnabled)
 
@@ -59,18 +59,15 @@ class ShortcutScheme(object):
 
         filename = self.__getFilename(filename)
 
-        if not os.path.exists(filename):
-            return
-
         with open(filename, 'w+t') as f:
             scheme = self.shortcuts
 
             if keep_unloaded:
-                saved_scheme = json.load(f)
+                saved_scheme = readJsonFile(f)
                 if saved_scheme and isinstance(saved_scheme, dict):
                     for cmd_id in saved_scheme.keys():
-                        if cmd_id not in scheme:
-                            saved_scheme[cmd_id] = saved_scheme[cmd_id]
+                        if isinstance(cmd_id, str) and cmd_id not in scheme:
+                            scheme[cmd_id] = saved_scheme[cmd_id]
 
             json.dump(scheme, f, ensure_ascii=False, indent=4)
 
@@ -82,27 +79,25 @@ class ShortcutScheme(object):
         filename = ShortcutScheme.__getFilename(filename)
 
         if not os.path.exists(filename):
-            return
+            return ShortcutScheme()
 
         with open(filename, 'rt') as f:
-            loaded_struct = json.load(f)
+            loaded_struct = readJsonFile(f)
             if not isinstance(loaded_struct, dict):
                 raise TypeError('invalid shortcut scheme file {0}'.format(filename))
-            shortcutMapping = dict((cmd_id, QKeySequence(shortcut)) \
-                                        for cmd_id, shortcut in loaded_struct.items())
-        return ShortcutScheme(shortcutMapping)
+            shortcutMapping = dict((cmd_id, QKeySequence(shortcut)) for cmd_id, shortcut in loaded_struct.items())
+            return ShortcutScheme(shortcutMapping)
 
     @staticmethod
     def __getFilename(filename):
-        return filename if os.path.isabs(filename) else os.path.join(constants.data_dir,
-                                                                     filename)
+        return filename if os.path.isabs(filename) else os.path.join(constants.data_dir, filename)
 
 
 class CommandManager(object):
     """Command manager manages commands and holds shortcut scheme.
     """
 
-    SHORTCUTS_CONFIG_FILENAME = 'shortcuts.conf'
+    ShortcutsConfigurationFile = 'shortcuts.conf'
 
     def __init__(self):
         self.commands = {}
@@ -112,28 +107,29 @@ class CommandManager(object):
 
     @property
     def shortcutScheme(self):
-        return self.__shortcutScheme
+        return copy.deepcopy(self.__shortcutScheme)
 
     @shortcutScheme.setter
     def shortcutScheme(self, new_scheme):
-        if self.__shortcutScheme is new_scheme:
+        if self.__shortcutScheme == new_scheme:
             return
 
         # update shortcuts for all loaded commands
         for cmd in self.commands.values():
-            if cmd.shortcut() != cmd.defaultShortcut:
-                if cmd.id in self.__shortcutScheme:
-                    cmd.setShortcut(self.__shortcutScheme.shortcuts[cmd.id])
-                else:
-                    cmd.resetShortcut()
+            if cmd.id in self.__shortcutScheme:
+                cmd.setShortcut(self.__shortcutScheme.shortcuts[cmd.id])
+            else:
+                cmd.resetShortcut()
 
     def addCommand(self, cmd):
         """Add given command to CommandManager. This allows user to manage command,
         change it shortcut, etc.
         """
 
-        if not cmd or not cmd.id or cmd.id in self.commands:
-            raise TypeError('invalid argument: cmd')
+        if cmd is None:
+            raise ValueError()
+        if cmd.id in self.commands:
+            raise ValueError(tr('unable to add command with id {0} - identifier already used').format(cmd.id))
 
         # if current shortcut scheme redefines key for this command
         if cmd.id in self.shortcutScheme.shortcuts:
@@ -144,41 +140,43 @@ class CommandManager(object):
         """Create new command and add it with CommandManager.addCommand
         """
 
-        if not cmd_id or cmd_id in self.commands:
-            raise TypeError('invalid argument: cmd_id')
+        if cmd_id in self.commands:
+            raise ValueError(tr('unable to add command with id {0} - identifier already used').format(cmd_id))
+
         cmd = Command(cmd_id, user_text, validator, default_shortcut)
         if slot:
             cmd.triggered.connect(slot)
         self.addCommand(cmd)
         return cmd
 
-    def command(self, id):
+    def command(self, ident):
         """Get command by its id or shortcut
         """
 
-        if isinstance(id, str):
-            return self.commands.get(id)
+        if isinstance(ident, str):
+            return self.commands.get(ident)
         else:
-            for c in self.commands.values():
-                if c.shortcut == id:
-                    return c
-            return None
+            return first(cmd for cmd in self.commands.values() if cmd.shortcut == ident)
 
     def addContainer(self, container):
-        if not container or container.id in self.containers:
-            raise TypeError('invalid argument: container')
+        if container is None:
+            raise ValueError()
+        if container.id in self.containers:
+            raise ValueError(tr('unable to add container with id {0} - identifier already used').format(container.id))
         self.containers[container.id] = container
 
-    def container(self, id):
-        return self.containers.get(id)
+    def container(self, ident):
+        return self.containers.get(ident)
 
     def addValidator(self, validator):
-        if not validator or validator.id in self.validators:
-            raise TypeError('invalid argument: validator')
+        if validator is None:
+            raise ValueError()
+        if validator.id in self.validators:
+            raise ValueError(tr('unable to add validator with id {0} - identifier already used').format(cmd_id))
         self.validators[validator.id] = validator
 
-    def validator(self, id):
-        return self.validators.get(id)
+    def validator(self, ident):
+        return self.validators.get(ident)
 
     def saveShortcutScheme(self):
         self.shortcutScheme.save(self.shortcutsConfigFilename())
@@ -187,9 +185,11 @@ class CommandManager(object):
         self.shortcutScheme = ShortcutScheme.load(self.shortcutsConfigFilename())
 
     def shortcutsConfigFilename(self):
-        return os.path.join(constants.data_dir, self.SHORTCUTS_CONFIG_FILENAME)
+        return os.path.join(constants.data_dir, self.ShortcutsConfigurationFile)
 
     def activate(self, validator, new_state=True):
+        """Activate given validator. If validator name is given that does not matches any registered validator,
+        new StandardStateValidator will be registered and activated"""
         if isinstance(validator, str):
             if validator not in self.validators:
                 self.addValidator(StandardStateValidator(validator))
@@ -202,10 +202,7 @@ class CommandManager(object):
 
     def isActive(self, validator):
         if isinstance(validator, str):
-            if validator in self.validators:
-                return self.validators[validator].isActive
-            else:
-                return False
+            return validator in self.validators and self.validators[validator].isActive
         else:
             return validator.isActive
 
@@ -229,15 +226,13 @@ class QMenuCommandContainer(QMenu):
     def appendCommand(self, command):
         if isinstance(command, str):
             command = globalCommandManager().command(command)
-        if not command:
+        if not isinstance(command, QAction):
             raise TypeError('invalid argument: command')
         self.addAction(command)
 
     def appendContainer(self, container):
         if isinstance(container, str):
             container = globalCommandManager().container(container)
-        if not container:
-            raise TypeError('invalid argument: command')
         if not isinstance(container, QMenuCommandContainer):
             raise TypeError('menu container expected')
         self.addMenu(container)
@@ -255,15 +250,13 @@ class QMenuBarCommandContainer(QMenuBar):
     def appendCommand(self, command):
         if isinstance(command, str):
             command = globalCommandManager().command(command)
-        if not command:
+        if not isinstance(command, QAction):
             raise TypeError('invalid argument: command')
         self.addAction(command)
 
     def appendContainer(self, container):
         if isinstance(container, str):
             container = globalCommandManager.container(container)
-        if not container:
-            raise TypeError('invalid argument: command')
         if not isinstance(container, QMenuCommandContainer):
             raise TypeError('menu container expected')
         self.addMenu(container)
@@ -281,7 +274,7 @@ class QToolBarCommandContainer(QToolBar):
     def appendCommand(self, command):
         if isinstance(command, str):
             command = globalCommandManager().command(command)
-        if not command:
+        if not isinstance(command, QAction):
             raise TypeError('invalid argument: command')
         self.addAction(command)
 

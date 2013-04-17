@@ -12,13 +12,14 @@ from organica.gui.topicsview import TopicsView
 from organica.gui.objectsview import ObjectsView
 from organica.gui.actions import globalCommandManager, QMenuBarCommandContainer, QMenuCommandContainer, \
                         StandardStateValidator
-from organica.utils.helpers import tr, removeLastSlash, lastFileDialogPath, setLastFileDialogPath
+from organica.utils.helpers import tr, removeLastSlash, lastFileDialogPath, setLastFileDialogPath, first
 from organica.gui.aboutdialog import AboutDialog
 from organica.gui.profiles import getProfile, genericProfile
-from organica.lib.library import Library
+from organica.lib.library import Library, LibraryError
 from organica.gui.createlibrarywizard import CreateLibraryWizard
 from organica.lib.storage import LocalStorage
 from organica.lib.filters import replaceInFilters
+import organica.utils.constants as constants
 
 
 class LibraryEnvironment(object):
@@ -27,8 +28,18 @@ class LibraryEnvironment(object):
         self.profile = None
         self.ui = None
 
+    @property
+    def title(self):
+        lib_name = self.lib.name
+        if not lib_name:
+            lib_name = os.path.basename(self.lib.databaseFilename)
+        profile_name = self.profile.name if self.profile is not None else tr('No profile')
+        if not profile_name:
+            profile_name = tr('Unknown')
+        return '{0} [{1}]'.format(lib_name, profile_name)
 
-LIBRARY_DIALOG_FILTER = 'Organica libraries (*.orl);;All files (*.*)'
+
+LibraryFileDialogFilter = 'Organica libraries (*.orl);;All files (*.*)'
 logger = logging.getLogger(__name__)
 
 
@@ -47,7 +58,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.libTabWidget)
 
         self.workspace = []  # list of LibraryEnvironment objects
-        self.__activeEnviron = None  # LibraryEnvironment object
 
         cm = globalCommandManager()
 
@@ -90,8 +100,9 @@ class MainWindow(QMainWindow):
         self.fileMenu.appendCommand('Application.Exit')
         self.menuBarContainer.appendContainer(self.fileMenu)
 
-        self.libraryMenu.appendCommand('Library.ShowDatabase')
-        self.libraryMenu.appendSeparator()
+        if constants.debug_mode:
+            self.libraryMenu.appendCommand('Library.ShowDatabase')
+            self.libraryMenu.appendSeparator()
         self.libraryMenu.appendCommand('Library.AddFiles')
         self.libraryMenu.appendCommand('Library.AddDirectory')
         self.libraryMenu.appendSeparator()
@@ -148,23 +159,19 @@ class MainWindow(QMainWindow):
         globalSearchHistoryModel().saveHistory()
 
     def updateTitle(self):
-        if self.activeEnviron is not None:
-            self.setWindowTitle('{0} - Organica'.format(self.getTitleForEnviron(self.activeEnviron)))
-        else:
-            self.setWindowTitle('Organica')
+        window_path = self.activeEnviron.title if self.activeEnviron is not None else ''
+        self.setWindowFilePath(window_path)
 
     def loadLibrary(self):
-        filename = QFileDialog.getOpenFileName(self, QCoreApplication.applicationName(), lastFileDialogPath(), LIBRARY_DIALOG_FILTER)
+        filename = QFileDialog.getOpenFileName(self, QCoreApplication.applicationName(), lastFileDialogPath(), LibraryFileDialogFilter)
         if filename:
             setLastFileDialogPath(filename)
             self.loadLibraryFromFile(filename)
 
     def loadLibraryFromFile(self, filename):
-        if not QDir.isAbsolutePath(filename):
-            filename = QFileInfo(filename).absoluteFilePath()
         filename = QDir.toNativeSeparators(filename)
 
-        env_of_duplicate = [env for env in self.workspace if env.lib is not None \
+        env_of_duplicate = [env for env in self.workspace if env.lib is not None
                              and QFileInfo(env.lib.databaseFilename) == QFileInfo(filename)]
         if env_of_duplicate:
             self.activeEnviron = env_of_duplicate[0]
@@ -172,45 +179,46 @@ class MainWindow(QMainWindow):
 
         newenv = None
 
-        try:
-            newlib = Library.loadLibrary(filename)
+        # try:
+        newlib = Library.loadLibrary(filename)
 
-            # try to load library
-            profile_uuid = newlib.getMeta('profile')
-            if not profile_uuid:
-                logger.warn('no profile associated with library {0}, falling back to generic'.format(filename))
-                profile = genericProfile()
-            else:
-                profile = getProfile(profile_uuid)
-                if profile is None:
-                    logger.warn('no profile extension {0} installed for library {1}, falling back to generic' \
-                                .format(profile_uuid, filename))
-                    profile = genericProfile()
-
+        # try to load library
+        profile_uuid = newlib.profileUuid
+        if not profile_uuid:
+            logger.warn('no profile associated with library {0}, falling back to generic'.format(filename))
+            profile = genericProfile()
+        else:
+            profile = getProfile(profile_uuid)
             if profile is None:
-                raise Exception('failed to load library {0}: cannot find profile to load it'.format(filename))
+                logger.warn('no profile extension {0} installed for library {1}, falling back to generic'
+                            .format(profile_uuid, filename))
+                profile = genericProfile()
 
-            newenv = LibraryEnvironment()
-            newenv.lib = newlib
-            newenv.profile = profile
-            newenv.ui = self.createUiForEnviron(newenv)
-            self.libTabWidget.addTab(newenv.ui, self.getTitleForEnviron(newenv))
+        if profile is None:
+            # this point is reachable in case we have no generic profile
+            raise LibraryError(tr('no generic profile installed').format(filename))
 
-            self.workspace.append(newenv)
+        newenv = LibraryEnvironment()
+        newenv.lib = newlib
+        newenv.profile = profile
+        newenv.ui = self.createUiForEnviron(newenv)
+        self.libTabWidget.addTab(newenv.ui, newenv.title)
 
-            if hasattr(newenv.profile, 'createProfileEnviron'):
-                newenv.profileEnviron = profile.createProfileEnviron(newenv)
-        except Exception as err:
-            self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
+        self.workspace.append(newenv)
+
+        if hasattr(newenv.profile, 'createProfileEnviron'):
+            newenv.profileEnviron = profile.createProfileEnviron(newenv)
+        # except Exception as err:
+        #     self.reportError('failed to load library from file {0}: {1}'.format(filename, err))
 
         if newenv is not None:
             self.activeEnviron = newenv
+        self.updateTitle()
 
     @property
     def activeEnviron(self):
-        widget = self.libTabWidget.currentWidget()
-        r = [env for env in self.workspace if env.ui == widget]
-        return r[0] if r else None
+        current_widget = self.libTabWidget.currentWidget()
+        return first(env for env in self.workspace if env.ui == current_widget)
 
     @activeEnviron.setter
     def activeEnviron(self, environ):
@@ -235,8 +243,8 @@ class MainWindow(QMainWindow):
             return
 
         # save gui state
-        environ.lib.setMeta('splitterstate', str(environ.ui.splitter.saveState().toHex(), encoding='ascii'))
-        environ.lib.setMeta('objectsview_splitter', str(environ.ui.objectsViewSplitter.saveState().toHex(), encoding='ascii'))
+        environ.lib.setMeta('ui_splitter_state', str(environ.ui.splitter.saveState().toHex(), encoding='ascii'))
+        environ.lib.setMeta('ui_objects_view_splitter', str(environ.ui.objectsViewSplitter.saveState().toHex(), encoding='ascii'))
 
         if environ.profile is not None:
             if environ.profileEnviron is not None and hasattr(environ.profileEnviron, 'onUnload'):
@@ -248,7 +256,6 @@ class MainWindow(QMainWindow):
         self.libTabWidget.removeTab(tab_index)
         environ.ui.deleteLater()
 
-        #todo: we should ensure that no other operations using this library
         environ.lib.close()
 
     def closeActiveEnviron(self):
@@ -285,55 +292,33 @@ class MainWindow(QMainWindow):
         ui.splitter.addWidget(ui.topicsView)
         ui.splitter.addWidget(ui.objectsViewSplitter)
 
-        splitter_state = environ.lib.getMeta('splitterstate')
+        splitter_state = environ.lib.getMeta('ui_splitter_state')
         if splitter_state:
             ui.splitter.restoreState(QByteArray.fromHex(splitter_state))
         else:
             ui.splitter.setSizes([250, 1000])
 
-        splitter_state = environ.lib.getMeta('objectsview_splitter')
+        splitter_state = environ.lib.getMeta('ui_objects_view_splitter')
         if splitter_state:
             ui.objectsViewSplitter.restoreState(QByteArray.fromHex(splitter_state))
         else:
             ui.objectsViewSplitter.setSizes([800, 200])
 
-        ui.layout = QVBoxLayout()
-        ui.layout.setContentsMargins(0, 0, 0, 0)
-        ui.layout.addWidget(ui.splitter)
-        ui.setLayout(ui.layout)
-
-        s = globalSettings()
+        ui.setLayout(QVBoxLayout())
+        ui.layout().setContentsMargins(0, 0, 0, 0)
+        ui.layout().addWidget(ui.splitter)
 
         ui.topicsView.selectedTagChanged.connect(self.__onCurrentTopicChanged)
 
-        quick_search = s['quick_search']
-        if not isinstance(quick_search, bool):
-            quick_search = True
         ui.searchPanel.searchRequested.connect(self.search)
         ui.searchPanel.hide()
 
         return ui
 
-    def getTitleForEnviron(self, environ):
-        if environ.lib is not None:
-            if environ.lib.name:
-                title = environ.lib.name
-            else:
-                title = '<{0}>'.format(QFileInfo(environ.lib.databaseFilename).fileName())
-
-            if environ.profile is not None:
-                title += ' [{0}]'.format(environ.profile.name)
-        elif environ.profile is not None:
-            title = '[{0}]'.format(environ.profile.name)
-        else:
-            title = ''
-        return title
-
     def environFromTab(self, tab):
         if isinstance(tab, int):
             tab = self.libTabWidget.widget(tab)
-        r = [env for env in self.workspace if env.ui is tab]
-        return r[0] if r else None
+        return first(env for env in self.workspace if env.ui is tab)
 
     def __onLibTabIndexChanged(self, new_index):
         self.updateTitle()
@@ -343,10 +328,6 @@ class MainWindow(QMainWindow):
         environ = self.environFromTab(tab_index)
         if environ is not None:
             self.closeEnviron(environ)
-
-    def createNodeFromUrl(self, display_name, url, environ):
-        if environ is not None and environ.lib is not None:
-            environ.lib.createNode(display_name, url)
 
     def addFiles(self):
         if self.activeEnviron is not None:
@@ -358,11 +339,11 @@ class MainWindow(QMainWindow):
 
     def addDir(self):
         if self.activeEnviron is not None:
-            dialog = QFileDialog(self, tr('Add directory with contents to library'), lastFileDialogPath())
+            dialog = QFileDialog(self, tr('Add directory to library'), lastFileDialogPath())
             dialog.setFileMode(QFileDialog.Directory)
             if dialog.exec_() == QFileDialog.Accepted:
                 setLastFileDialogPath(dialog.selectedFiles()[0])
-                self.addFilesFromList([dialog.selectedFiles()[0]])
+                self.addFilesFromList(dialog.selectedFiles())
 
     def addFilesFromList(self, filenames):
         from organica.lib.objects import Node, Identity, Tag
@@ -411,11 +392,8 @@ class MainWindow(QMainWindow):
 
         self.endSearch()
 
-        for env in self.workspace:
-            if env.ui.topicsView is self.sender():
-                environ = env
-                break
-        else:
+        environ = first(env for env in self.workspace if env.ui.topicsView is self.sender())
+        if environ is None:
             return
 
         objects_model = environ.ui.objectsView.model

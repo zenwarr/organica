@@ -1,7 +1,5 @@
 import copy
-
 from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex
-
 from organica.lib.sets import TagSet
 from organica.utils.lockable import Lockable
 from organica.lib.filters import TagQuery
@@ -30,7 +28,7 @@ class TagsModel(QAbstractItemModel, Lockable):
         QAbstractItemModel.__init__(self)
         Lockable.__init__(self)
         self.__lib = lib
-        self.__hierarchy = []  # list of strings (class names)
+        self.__hierarchy = ['*']  # list of strings (class names)
         self.__leaves = dict()  # dictionary of leaves by id
         self.__showHidden = False  # True if model should take hidden tags into account
         self.__lastNodeId = -1

@@ -14,9 +14,11 @@ from organica.gui.actions import globalCommandManager
 import organica.utils.constants as constants
 from organica.gui.mainwin import globalMainWindow
 from organica.utils.extend import globalPluginManager
-from organica.gui.appsettings import doRegister
+import organica.gui.appsettings as appsettings
+import organica.generic.extension as generic_extension
 
 
+logging.basicConfig()
 logger = logging.getLogger(__name__)
 
 
@@ -29,10 +31,15 @@ def runApplication():
     os.chdir(os.path.expanduser('~'))
 
     app = globalApplication()
-    app.startUp()
-    return_code = app.exec_()
-    app.shutdown()
-    return return_code
+    try:
+        app.startUp()
+    except InitError as err:
+        print('application failed to initialize: {0}'.format(err))
+        return -1
+    else:
+        return_code = app.exec_()
+        app.shutdown()
+        return return_code
 
 
 class Application(QApplication):
@@ -46,8 +53,6 @@ class Application(QApplication):
         self.arguments = object()
 
     def startUp(self):
-        logging.basicConfig()
-
         constants.gui_thread = threading.current_thread()
 
         QTextCodec.setCodecForCStrings(QTextCodec.codecForName('UTF-8'))
@@ -65,18 +70,16 @@ class Application(QApplication):
                     os.mkdir(data_dir)
                     constants.is_portable = True
                 except OSError:
-                    logger.error('application is running in portable mode, but has no access to data directory %s',
-                                 data_dir)
-                    raise InitError()
+                    msg = 'application is running in portable mode, but has no access to data directory %s'.format(data_dir)
+                    raise InitError(msg)
             elif not os.access(data_dir, os.R_OK | os.W_OK):
                 # we should have at least read-write access to data directory.
-                logger.error('application is running in portable mode, but has no enough rights for accessing data directory %s',
-                             data_dir)
-                raise InitError()
+                msg = 'application is running in portable mode, but has no enough rights for accessing data directory %s'.format(data_dir)
+                raise InitError(msg)
             else:
                 constants.is_portable = True
 
-        logger.debug('constants.is_portable = {0}'.format(constants.is_portable))
+        print('constants.is_portable = {0}'.format(constants.is_portable))
 
         # set data directory
         if constants.is_portable:
@@ -88,26 +91,21 @@ class Application(QApplication):
         else:
             constants.data_dir = os.path.expanduser('~/.organica')
 
-        logger.debug('constants.data_dir = {0}'.format(constants.data_dir))
+        print('constants.data_dir = {0}'.format(constants.data_dir))
 
         settings.defaultSettingsDirectory = constants.data_dir
         settings.defaultSettingsFilename = 'organica.conf'
         settings.defaultQuickSettingsFilename = 'organica.qconf'
         settings.warningOutputRoutine = logger.warn
 
-        doRegister()
-
-        try:
-            globalCommandManager().loadShortcutScheme()
-        except Exception as err:
-            logger.error('failed to read shortcuts scheme: ' + str(err))
+        appsettings.doRegister()
 
         # initialize argument parser. We can use it later, when another instance delivers args to us
         self.argparser = argparse.ArgumentParser(prog=self.applicationName())
         self.argparser.add_argument('-v', '--version',
-                                action='version',
-                                version='Organica ' + self.applicationVersion(),
-                                help='show application version and exit')
+                                    action='version',
+                                    version='Organica ' + self.applicationVersion(),
+                                    help='show application version and exit')
         self.argparser.add_argument('files', nargs='?')
         self.argparser.add_argument('--reset-settings', dest='resetSettings',
                                     action='store_true',
@@ -132,16 +130,12 @@ class Application(QApplication):
             except SettingsError as err:
                 logger.error(err)
 
-        # init logging
-        if globalSettings().get('log_file_name') is not None:
-            logging.basicConfig(filename=globalSettings()['log_file_name'])
-        else:
-            logging.basicConfig()
+        try:
+            globalCommandManager().loadShortcutScheme()
+        except Exception as err:
+            print('failed to read shortcuts scheme: ' + str(err))
 
-        #todo: redirect standart io channels
-
-        from organica.generic.extension import register
-        register()
+        generic_extension.register()
 
         globalPluginManager().loadPlugins()
 
@@ -149,10 +143,10 @@ class Application(QApplication):
         self.mainWindow.show()
 
     def shutdown(self):
-        globalPluginManager().unloadPlugins()
         globalCommandManager().saveShortcutScheme()
         globalSettings().save()
         globalQuickSettings().save()
+        globalPluginManager().unloadPlugins()
         logging.shutdown()
 
 

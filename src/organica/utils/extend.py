@@ -409,7 +409,7 @@ class Hooks(object):
 
     @staticmethod
     def runHook(hook_name, **kwargs):
-        getattr(Hooks, ('un' if constants.debug_plugins else '') + 'runHook')(hook_name, **kwargs)
+        getattr(Hooks, ('un' if constants.debug_mode else '') + 'runHook')(hook_name, **kwargs)
 
 
 def reportPluginFail(error, plugin_object):
@@ -442,7 +442,7 @@ class _PluginObjectWrapper(object):
         if attr_name.startswith('_'):
             return object.__getattr__(self, attr_name)
         if self._target is not None:
-            if not constants.debug_plugins:
+            if not constants.debug_mode:
                 try:
                     return getattr(self._target, attr_name)
                 except Exception as err:
@@ -457,7 +457,7 @@ class _PluginObjectWrapper(object):
         if attr_name.startswith('_') or attr_name.startswith('_PluginObjectWrapper'):
             object.__setattr__(self, attr_name, attr_value)
         if self._target is not None:
-            if not constants.debug_plugins:
+            if not constants.debug_mode:
                 try:
                     setattr(self._target, attr_name, attr_value)
                 except Exception as err:
@@ -469,7 +469,7 @@ class _PluginObjectWrapper(object):
 
     def __getitem__(self, item):
         if self._target is not None:
-            if not constants.debug_plugins:
+            if not constants.debug_mode:
                 try:
                     return self._target[item]
                 except Exception as err:
@@ -482,7 +482,7 @@ class _PluginObjectWrapper(object):
 
     def __setitem__(self, item, value):
         if self._target is not None:
-            if not constants.debug_plugins:
+            if not constants.debug_mode:
                 try:
                     self._target[item] = value
                 except Exception as err:
@@ -495,7 +495,7 @@ class _PluginObjectWrapper(object):
 
     def __delitem__(self, item):
         if self._target is not None:
-            if not constants.debug_plugins:
+            if not constants.debug_mode:
                 try:
                     del self._target[item]
                 except Exception as err:
@@ -508,7 +508,7 @@ class _PluginObjectWrapper(object):
 
     def __iter__(self):
         if self._target is not None:
-            if not constants.debug_plugins:
+            if not constants.debug_mode:
                 try:
                     return iter(self._target)
                 except Exception as err:

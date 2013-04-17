@@ -22,6 +22,8 @@ class GenericNodeEditorProvider(object):
 class GenericNodeEditor(QWidget):
     dataChanged = pyqtSignal()
 
+    title = tr('Generic')
+
     def __init__(self, lib, parent=None):
         QWidget.__init__(self, parent)
         self.lib = lib

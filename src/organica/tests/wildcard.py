@@ -26,3 +26,6 @@ class WildcardTest(unittest.TestCase):
         w = Wildcard('[a-Z]auth*')
         self.assertEqual(w, '[a-Z]author')
         self.assertNotEqual(w, 'aauth')
+
+        w = Wildcard('or')
+        self.assertNotEqual(w, 'author')

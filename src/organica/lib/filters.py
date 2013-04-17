@@ -54,7 +54,7 @@ class Wildcard(object):
 
 def _sqlEqualForm(text):
     """Doubles each single quote. Use it to sanitize strings which will be passed
-    into query in constucts like this: row = 'some_text'
+    into query in constructs like this: row = 'some_text'
     """
 
     r = ''
@@ -93,8 +93,6 @@ def _sqlLikeForm(text):
                 result += c
 
     if escaping:
-        # escape slash at end of string, warn
-        # log("escape slash at end of string: {0}".format(self.__text), LOG_WARNING)
         result += '\\'
 
     return result

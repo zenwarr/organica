@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>410</width>
-    <height>246</height>
+    <width>408</width>
+    <height>244</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -46,16 +46,16 @@
         </layout>
        </item>
        <item>
-        <widget class="QCheckBox" name="chkCopySettings">
+        <widget class="QCheckBox" name="chkRemoveFiles">
          <property name="text">
-          <string>Copy settings from old storage</string>
+          <string>Remove all files</string>
          </property>
         </widget>
        </item>
        <item>
-        <widget class="QCheckBox" name="chkRemoveFiles">
+        <widget class="QCheckBox" name="chkCopySettings">
          <property name="text">
-          <string>Remove all files</string>
+          <string>Copy settings from old storage</string>
          </property>
         </widget>
        </item>
@@ -110,8 +110,6 @@
         </widget>
        </item>
       </layout>
-      <zorder>formLayoutWidget</zorder>
-      <zorder>formLayoutWidget</zorder>
       <zorder>chkCopySettings</zorder>
       <zorder>grpFiles</zorder>
       <zorder>buttonBox</zorder>

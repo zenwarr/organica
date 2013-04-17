@@ -9,7 +9,6 @@ def doRegister():
 
     if not _is_registered:
         _settings_to_register = (
-                         ('log_file_name', None, str),
                          ('default_error_policy', 'ask', str),
                          ('disabled_plugins', [], (list, tuple)),
                          ('pool_operations_limit', 10, int),

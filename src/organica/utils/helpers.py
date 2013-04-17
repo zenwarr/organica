@@ -92,3 +92,10 @@ def setLastFileDialogPath(new_path):
     if os.path.exists(new_path) and os.path.isfile(new_path):
         new_path = os.path.dirname(new_path)
     qs['last_filedialog_path'] = new_path
+
+
+def first(iterable, default=None):
+    try:
+        return next(iter(iterable))
+    except StopIteration:
+        return default

@@ -1,6 +1,5 @@
 import string
 from copy import copy, deepcopy
-
 import organica.utils.helpers as helpers
 
 
@@ -9,10 +8,9 @@ def get_identity(some_object):
 
 
 def isCorrectIdent(name):
-    """Check if name can be used as class or meta name
-    """
-    return name and isinstance(name, str) and len(name) <= 1000 and \
-            helpers.each(name, lambda x: x in string.ascii_letters or x in string.digits or x in '_')
+    """Check if name can be used as class or meta name"""
+    return isinstance(name, str) and (0 < len(name) <= 1000) and all(c in string.ascii_letters + string.digits + '_'
+                                                                     for c in name)
 
 
 class ObjectError(Exception):
@@ -20,7 +18,7 @@ class ObjectError(Exception):
 
 
 class Identity(object):
-    """Each flushed library object has an identity that unically identifies an entry in
+    """Each flushed library object has an identity that uniquely identifies an entry in
     underlying database. Identity is immutable.
     """
     def __init__(self, lib=None, id=-1):
@@ -52,7 +50,7 @@ class Identity(object):
         return not self.__eq__(other)
 
     def __deepcopy__(self, memo):
-        # do not deepcopy library reference
+        # do not deepcopy referenced library
         return Identity(self.lib, self.id)
 
 
@@ -68,7 +66,7 @@ class TagValue(object):
                   and INTEGER referencing row from 'nodes' table in SQLite database.
         - NONE: an empty value. Mapped to Python None and SQLite NULL. Value of
                   this type can be assigned to tags with any value type.
-    Note that all types used as values are immutable.
+    Note that all Python types TagValue can be converted to are immutable. TagValue is immutable too.
     """
 
     # constants for value types
@@ -76,41 +74,37 @@ class TagValue(object):
 
     @staticmethod
     def isValueTypeCorrect(value_type):
-        """Check if :value_type: can be used as value type.
-        """
-
-        return (TagValue.TYPE_NONE <= value_type <= TagValue.TYPE_NODE_REFERENCE)
+        """Check if :value_type: can be used as value type."""
+        return TagValue.TYPE_NONE <= value_type <= TagValue.TYPE_NODE_REFERENCE
 
     @staticmethod
     def __checkValueTypeCorrect(value_type):
-        """Raise exception if :value_type: is not correct
-        """
-
+        """Raise exception if :value_type: is not correct"""
         if not TagValue.isValueTypeCorrect(value_type):
             raise ObjectError('invalid value type: {0}'.format(value_type))
 
     @staticmethod
     def _type_traits():
-        if not hasattr(TagValue, '__type_traits'):
+        if not hasattr(TagValue, '_type_traits_list'):
             from organica.lib.locator import Locator
 
-            # function to decode value stored in db to Python object
+            # function to decode value of TYPE_NODE_REFERENCE stored in db
             def dec_object(tag_class, db_form):
                 if tag_class.lib.object(Identity(tag_class.lib, int(db_form))):
                     return Identity(tag_class.lib, int(db_form))
                 raise TypeError('invalid id {0} for object reference tag'.format(db_form))
 
-            TagValue.__type_traits = {
+            TagValue._type_traits_list = {
                 # type_id: (name, prop_name, allowed_python_types, db_encoder, db_decoder)
                 TagValue.TYPE_NONE: ('None', '', (type(None), ), None, None),
                 TagValue.TYPE_TEXT: ('Text', 'text', (str, ), None, None),
                 TagValue.TYPE_NUMBER: ('Number', 'number', (int, float), None, None),
                 TagValue.TYPE_LOCATOR: ('Locator', 'locator', (Locator, ), (lambda l: l.databaseForm),
-                               (lambda c, d: Locator.fromDatabaseForm(d, c.lib))),
+                               (lambda c, d: Locator.fromDatabaseForm(d))),
                 TagValue.TYPE_NODE_REFERENCE: ('Node reference', 'nodeReference', (Identity, Node),
                                         (lambda obj: obj.id), dec_object)
             }
-        return TagValue.__type_traits
+        return TagValue._type_traits_list
 
     def __init__(self, value=None, value_type=-1):
         if isinstance(value, TagValue):
@@ -119,8 +113,7 @@ class TagValue(object):
             self.setValue(value, value_type)
 
     def setValue(self, value, value_type=-1):
-        """:value_type: = -1 means autodetecting type
-        """
+        """:value_type: = -1 means autodetecting type"""
 
         if value_type != -1:
             self.__checkValueTypeCorrect(value_type)
@@ -187,7 +180,7 @@ class TagValue(object):
 
     def printable(self):
         """Printable (but not precise) form that can be used in
-        error messages or something like it (limited in size)
+        error messages or something like it. Has limited length, trimmed if text is longer.
         """
 
         s = str(self.databaseForm)
@@ -197,8 +190,7 @@ class TagValue(object):
 
     @staticmethod
     def fromDatabaseForm(cTagClass, dbForm):
-        """Returns TagValue object from object stored in database.
-        """
+        """Returns TagValue object from value stored in database."""
 
         TagValue.__checkValueTypeCorrect(cTagClass.valueType)
         traits = TagValue._type_traits()[cTagClass.valueType]
@@ -488,6 +480,9 @@ class Tag(LibraryObject):
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def actual(self):
+        return self.lib.tag(self) if self.isFlushed else None
+
 
 class Node(LibraryObject):
     """Node represents object in database. It has display name generated dynamically basing on
@@ -510,7 +505,7 @@ class Node(LibraryObject):
 
     @property
     def allTags(self):
-        """Get deep copy of list containing all tags linked with this node.
+        """Get list containing all tags linked with this node. This is not copy but reference to original list
         """
 
         self.ensureTagsFetched()
@@ -648,8 +643,10 @@ class Node(LibraryObject):
         method manually). Tags are not fetched from database twice.
         """
 
+        from organica.lib.filters import TagQuery
+
         if self.isFlushed and not self.__tagsFetched:
-            self.__allTags = self.lib.nodeTags(self)
+            self.__allTags = self.lib.tags(TagQuery(linked_with=self))
         self.__tagsFetched = True
 
     def updateTag(self, tag):
@@ -672,3 +669,6 @@ class Node(LibraryObject):
         from organica.lib.filters import TagQuery
 
         return [tag.value.locator for tag in self.tags(TagQuery(tag_class='locator'))]
+
+    def actual(self):
+        return self.lib.node(self) if self.isFlushed else None

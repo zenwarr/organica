@@ -21,10 +21,12 @@ class _Set(QObject, Lockable):
         Lockable.__init__(self)
         self.results = []
         self.__isFetched = False
-        self.__lib = None
+        self.__lib = lib
         self.__query = None
-        self.lib = lib
         self.query = query
+
+        if self.__lib is not None:
+            self.__lib.resetted.connect(self.__reset)
 
     @property
     def isFetched(self):
@@ -39,20 +41,6 @@ class _Set(QObject, Lockable):
         with self.lock:
             return self.__lib
 
-    @lib.setter
-    def lib(self, new_lib):
-        with self.lock:
-            if self.__lib is not new_lib:
-                if self.__lib is not None:
-                    self.__lib.resetted.disconnect(self.__onResetted)
-
-                self.__lib = new_lib
-                self.query = None
-                self.__reset()
-
-                if self.__lib is not None:
-                    self.__lib.resetted.connect(self.__onResetted)
-
     @property
     def query(self):
         """Query this Set using to fetch results"""
@@ -65,11 +53,6 @@ class _Set(QObject, Lockable):
             if self.__query is not new_query:
                 self.__query = new_query
                 self.__reset()
-
-    def __onResetted(self):
-        with self.lock:
-            self.results.clear()
-            self.resetted.emit()
 
     def ensureFetched(self):
         """Ensures that results are fetched from database."""
@@ -104,9 +87,10 @@ class _Set(QObject, Lockable):
                 yield result
 
     def __reset(self):
-        self._results = []
-        self.__isFetched = False
-        self.resetted.emit()
+        with self.lock:
+            self._results = []
+            self.__isFetched = False
+            self.resetted.emit()
 
 
 class TagSet(_Set):
@@ -125,7 +109,7 @@ class TagSet(_Set):
     def allTags(self):
         with self.lock:
             self.ensureFetched()
-            return copy.deepcopy(self.results)
+            return self.results
 
     def _fetch(self):
         with self.lock:
@@ -189,7 +173,7 @@ class NodeSet(_Set):
     def allNodes(self):
         with self.lock:
             self.ensureFetched()
-            return copy.deepcopy(self.results)
+            return self.results
 
     def _fetch(self):
         with self.lock:
@@ -238,4 +222,3 @@ class NodeSet(_Set):
             from organica.lib.filters import NodeQuery
             for node in self.lib.nodes(NodeQuery(linked_with=updated_tag)):
                 self.__onNodeUpdated(node)
-

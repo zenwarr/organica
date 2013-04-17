@@ -2,11 +2,11 @@ import logging
 import os
 import copy
 
-from PyQt4.QtCore import Qt, QByteArray
+from PyQt4.QtCore import Qt
 from PyQt4.QtGui import QDialog, QListView, QTabWidget, QDialogButtonBox, QStandardItemModel, \
                         QLineEdit, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel, QWidget, QStandardItem, QIcon
 
-from organica.utils.helpers import tr, removeLastSlash
+from organica.utils.helpers import tr, removeLastSlash, first
 from organica.utils.extend import globalObjectPool
 from organica.utils.settings import globalQuickSettings
 from organica.gui.dialog import Dialog
@@ -15,7 +15,7 @@ from organica.gui.dialog import Dialog
 logger = logging.getLogger(__name__)
 
 
-NODE_EDITOR_PROVIDER_GROUP = 'node_editor_provider'
+NodeEditorProviderGroup = 'node_editor_provider'
 
 
 class NodeEditDialog(Dialog):
@@ -23,27 +23,30 @@ class NodeEditDialog(Dialog):
     allows user to edit one or more nodes of one library.
     """
 
+    class _EditorData(object):
+        def __init__(self):
+            self.widget = None
+            self.generator = None
+
     def __init__(self, parent, lib, nodes):
         Dialog.__init__(self, parent, name='node_edit_dialog')
 
         self.lib = lib
-        self.__nodes = []
-        self.__editors = []  # contains tuples of (editor, generator)
-        self.__currentEditor = None
-        self.__nodesLoaded = True
+        self.__nodes = []  # list of available Nodes objects
+        self.__editors = []  # contains _EditorData objects
+        self.__currentEditor = None  # _EditorData for active editor
         self.autoFlush = True  # if true, nodes will be flushed by dialog on pressing OK
-        self.__selectedIndexes = []
+        self.__selectedIndexes = []  # indexes for nodes selected in top-left list
+        self.__nodesLoaded = False
 
         self.setWindowTitle(tr('Edit nodes'))
-
-        # create widgets
 
         # list that will display all nodes loaded into dialog
         self.nodeList = QListView(self)
         self.nodeList.setMaximumWidth(200)
         self.nodeList.setSelectionMode(QListView.ExtendedSelection)
 
-        # model for above list
+        # model for list above
         self.nodesModel = QStandardItemModel()
         self.nodeList.setModel(self.nodesModel)
 
@@ -60,10 +63,12 @@ class NodeEditDialog(Dialog):
         # label displayed when no editors are loaded into dialog
         self.noEditorsLabel = QLabel(self)
         self.noEditorsLabel.hide()
-        self.noEditorsLabel.setText(tr('You have no editor extensions appliable'))
+        self.noEditorsLabel.setText(tr('You have no editor extensions applicable'))
         self.noEditorsLabel.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
 
         self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
 
         displayNameLayout = QHBoxLayout()
         displayNameLayout.addWidget(self.chkCommonDisplayName)
@@ -82,16 +87,17 @@ class NodeEditDialog(Dialog):
         layout.addWidget(self.buttonBox)
 
         self.nodeList.selectionModel().selectionChanged.connect(self.__onSelectionChanged)
-        self.tabsEditors.currentChanged.connect(self.__onEditorChanged)
-        self.buttonBox.accepted.connect(self.accept)
-        self.buttonBox.rejected.connect(self.reject)
+        self.tabsEditors.currentChanged.connect(self.__onCurrentEditorChanged)
 
         with globalObjectPool().lock:
             # discover already registered editors
-            for prov in globalObjectPool().objects(group=NODE_EDITOR_PROVIDER_GROUP):
+            for prov in globalObjectPool().objects(group=NodeEditorProviderGroup):
                 # check profile affinity
                 if not hasattr(prov, 'profileUuid') or prov.profileUuid == self.lib.profileUuid:
-                    self.addEditor(prov)
+                    try:
+                        self.addEditorFromProvider(prov)
+                    except Exception as err:
+                        logger.error('failed to create editor from provider: ' + str(err))
 
             if not self.__editors:
                 self.__showNoEditorsPage()
@@ -102,44 +108,45 @@ class NodeEditDialog(Dialog):
 
         self.__setNodes(nodes)
 
-    def addEditor(self, provider):
-        """Add editor from extension object that should have NODE_EDITOR_PROVIDER_GROUP.
+    def addEditorFromProvider(self, provider):
+        """Add editor from extension object that should have NodeEditorProviderGroup.
         If profile affinity does not allow editor to be shown on this library, no error raised.
         """
 
-        if provider is None or not hasattr(provider, 'group') or provider.group != NODE_EDITOR_PROVIDER_GROUP:
+        if provider is None or not hasattr(provider, 'group') or provider.group != NodeEditorProviderGroup:
             raise TypeError('invalid argument: provider')
 
         # if we already have this provider added, switch to its tab
-        for editor_data in self.__editors:
-            if editor_data[1] is provider:
-                self.tabsEditors.setCurrentIndex(self.tabsEditors.indexOf(editor_data[0]))
-                return
+        existing_editor = first(ed for ed in self.__editors if ed.provider is provider)
+        if existing_editor is not None:
+            self.tabsEditors.setCurrentWidget(existing_editor.widget)
+            return
 
         if not hasattr(provider, 'create') or not callable(provider.create):
-            logger.error('provider should have "create" method')
-            return
+            raise TypeError('provider should have "create" method')
 
         # create editor
         try:
-            editor = provider.create(self.lib)
+            editor_widget = provider.create(self.lib)
         except Exception as err:
-            logger.error('provider failed to create editor: {0}'.format(err))
-            return
+            raise TypeError('provider failed to create editor: {0}'.format(err))
 
-        if not isinstance(editor, QWidget) or not all((hasattr(editor, aname) for aname in ('load', 'getModified', 'reset'))):
-            logger.error('node editor does not support required interface')
-            return
+        if not isinstance(editor_widget, QWidget) or not all((hasattr(editor_widget, aname) for aname in ('load', 'getModified', 'reset'))):
+            raise TypeError('node editor does not support required interface')
 
         # if we have 'no editors' label, remove it
         if not self.__editors and self.tabsEditors.count():
             self.noEditorsLabel.hide()
             self.tabsEditors.removeTab(0)
 
-        editor_icon = editor.icon if hasattr(editor, 'icon') else None
-        editor_title = editor.title if hasattr(editor, 'title') else 'Unknown'
-        self.tabsEditors.addTab(editor, editor_icon or QIcon(), editor_title)
-        self.__editors.append((editor, provider))
+        editor_data = self._EditorData()
+        editor_data.widget = editor_widget
+        editor_data.provider = provider
+        self.__editors.append(editor_data)
+
+        editor_icon = editor_widget.icon if hasattr(editor_widget, 'icon') else None
+        editor_title = editor_widget.title if hasattr(editor_widget, 'title') else 'Unknown'
+        self.tabsEditors.addTab(editor_widget, editor_icon or QIcon(), editor_title)
 
     @property
     def nodes(self):
@@ -148,20 +155,17 @@ class NodeEditDialog(Dialog):
 
     def reject(self):
         self.__save()
-        QDialog.reject(self)
+        Dialog.reject(self)
 
     def accept(self):
-        """Flushes changes made in library.
-        """
+        """Flushes changes made in library only if autoFlush flag is set."""
         self.__save()
         if self.autoFlush:
             self.flush()
-        QDialog.accept(self)
+        Dialog.accept(self)
 
     def __setNodes(self, new_nodes):
-        """It does not save changes made in loaded nodes.
-        """
-
+        """It does not save changes made in loaded nodes."""
         from organica.lib.filters import TagQuery
 
         # clear old ones
@@ -174,7 +178,7 @@ class NodeEditDialog(Dialog):
             item = QStandardItem()
 
             # get text that will be displayed in list. Do not use display name, but locator instead.
-            locators = [tag.value.locator for tag in node.tags(TagQuery(tag_class='locator'))]
+            locators = node.resources
             if not locators:
                 if node.isFlushed:
                     # if object is flushed, display its id (it is better than nothing)
@@ -185,13 +189,13 @@ class NodeEditDialog(Dialog):
                     item.setText(tr('<element {0}>').format(last_unk_id))
             else:
                 # take first locator and use it. If we have sourceUrl defined, use it instead.
-                choosen_locator = locators[0]
-                if choosen_locator.sourceUrl:
-                    if choosen_locator.sourceUrl.isLocalFile():
-                        filepath = removeLastSlash(choosen_locator.sourceUrl.toLocalFile())
+                choosen_locator = locators[0].getResolved(node)
+                if choosen_locator.source:
+                    if choosen_locator.source.isLocalFile:
+                        filepath = removeLastSlash(choosen_locator.source.localFilePath)
                         item.setText(os.path.basename(filepath))
                     else:
-                        item.setText(choosen_locator.sourceUrl.toString())
+                        item.setText(choosen_locator.source.url.toString())
                 elif choosen_locator.isLocalFile:
                     full_filename = removeLastSlash(choosen_locator.localFilePath)
                     item.setText(os.path.basename(full_filename))
@@ -200,7 +204,6 @@ class NodeEditDialog(Dialog):
                 item.setIcon(choosen_locator.icon)
 
             node_copy = copy.deepcopy(node)
-            item.setData(node_copy, Qt.UserRole)
             item.setEditable(False)
             self.nodesModel.appendRow(item)
             self.__nodes.append(node_copy)
@@ -210,39 +213,33 @@ class NodeEditDialog(Dialog):
 
     def __onObjectAdded(self, new_object):
         # should we add another editor?
-        if new_object.group == NODE_EDITOR_PROVIDER_GROUP and \
-                    (not hasattr(new_object, 'profileUuid') or new_object.profile == self.lib.profileUuid):
-            self.addEditor(new_object)
+        if new_object.group == NodeEditorProviderGroup and \
+                    (not hasattr(new_object, 'profileUuid') or new_object.profileUuid == self.lib.profileUuid):
+            self.addEditorFromProvider(new_object)
 
     def __onObjectRemoved(self, removed_object):
-        if removed_object is None or removed_object.group != NODE_EDITOR_PROVIDER_GROUP:
+        if removed_object is None or removed_object.group != NodeEditorProviderGroup:
             return
 
-        for d in self.__editors:
-            if d[1] is removed_object:
-                self.tabsEditors.removeTab(self.tabsEditors.indexOf(d[0]))
-                self.__editors = [x for x in self.__editors if x[1] is not removed_object]
-                if not self.__editors:
-                    self.__showNoEditorsPage()
-                break
+        editor_data = first(ed for ed in self.__editors if ed.provider is removed_object)
+        if editor_data is not None:
+            self.tabsEditors.removeTab(self.tabsEditors.indexOf(editor_data.widget))
+            self.__editors = [ed for ed in self.__editors if ed.provider is not removed_object]
+            if not self.__editors:
+                self.__showNoEditorsPage()
 
-    def __onEditorChanged(self, new_editor_index):
-        # we should save changes old editor has made
+    def __onCurrentEditorChanged(self, new_editor_index):
+        # save changes old editor has made
         self.__save()
 
-        if self.__currentEditor is not None:
-            self.__currentEditor.dataChanged.disconnect(self.__onEditorDataChanged)
-
         if new_editor_index != -1:
-            editor = self.tabsEditors.widget(new_editor_index)
-            self.__currentEditor = editor
-            if editor is not None and editor is not self.noEditorsLabel:
-                # we should save information old editor had changed
-                self.__load()
-
-                editor.dataChanged.connect(self.__onEditorDataChanged)
-        else:
-            self.__currentEditor = None
+            editor_widget = self.tabsEditors.widget(new_editor_index)
+            if editor_widget is not self.noEditorsLabel:
+                self.__currentEditor = first(ed for ed in self.__editors if ed.widget is editor_widget)
+                if self.__currentEditor is not None:
+                    self.__load()
+                    return
+        self.__currentEditor = None
 
     def __save(self):
         """Saves information editor has made to all selected nodes. Use this method when
@@ -250,7 +247,7 @@ class NodeEditDialog(Dialog):
         """
         single_node_edited = len(self.__selectedIndexes) == 1
         for selected_node_index in self.__selectedIndexes:
-            node = selected_node_index.data(Qt.UserRole)
+            node = self.__nodes[selected_node_index.row()]
 
             # save display name
             if single_node_edited or self.chkCommonDisplayName.isChecked():
@@ -258,13 +255,12 @@ class NodeEditDialog(Dialog):
 
             if self.__currentEditor is not None:
                 try:
-                    self.__nodes[selected_node_index.row()] = self.__currentEditor.getModified(node)
+                    self.__nodes[selected_node_index.row()] = self.__currentEditor.widget.getModified(node)
                 except Exception as err:
                     logger.error('node editor failed to save changes: {0}'.format(err))
 
     def __load(self):
-        """Loads information in active editor.
-        """
+        """Loads information in active editor."""
         self.__nodesLoaded = False
         self.__selectedIndexes = self.nodeList.selectedIndexes()
         nodes = self.selectedNodes
@@ -281,10 +277,10 @@ class NodeEditDialog(Dialog):
             self.txtDisplayName.setText(nodes[0].displayNameTemplate)
 
         if self.__currentEditor is not None:
-            self.__currentEditor.setEnabled(bool(nodes))
+            self.__currentEditor.widget.setEnabled(bool(nodes))
             if nodes:
                 try:
-                    self.__currentEditor.load(nodes)
+                    self.__currentEditor.widget.load(nodes)
                     self.__nodesLoaded = True
                 except Exception as err:
                     logger.error('node editor failed to load nodes: {0}'.format(err))
@@ -314,17 +310,17 @@ class NodeEditDialog(Dialog):
         for node in self.__nodes:
             node.flush(self.lib)
             for tag in node.allTags:
-                if tag.valueType == TagValue.TYPE_LOCATOR and tag.value.locator.sourceUrl:
+                if tag.valueType == TagValue.TYPE_LOCATOR and tag.value.locator.source:
                     resources_to_move.append((node, tag))
 
         def moveResources(resources_to_move):
             progress_part = 100.0 / len(resources_to_move)
             for node, tag in resources_to_move:
-                source_filename = tag.value.locator.sourceUrl.toLocalFile()
+                source_filename = tag.value.locator.source.localFilePath
                 target_filename = tag.value.locator.localFilePath
                 with globalOperationContext().newOperation('adding {0}'.format(source_filename),
                                                            progress_weight=progress_part):
-                    if not tag.value.locator.sourceUrl.isLocalFile() or not tag.value.locator.isLocalFile:
+                    if not tag.value.locator.source.isLocalFile or not tag.value.locator.isLocalFile:
                         globalOperationContext().currentOperation.addMessage(tr('Storage supports only file source and target'),
                                                                              logging.ERROR)
                         continue
@@ -336,27 +332,3 @@ class NodeEditDialog(Dialog):
     @property
     def selectedNodes(self):
         return [self.__nodes[index.row()] for index in self.__selectedIndexes]
-
-    def __onEditorDataChanged(self):
-        # when editor changes data, we should recalculate locators of affected nodes if ones
-        # are formatted with template.
-        from organica.lib.objects import TagValue
-        from organica.lib.formatstring import FormatString
-        from organica.lib.locator import Locator
-
-        self.__save()
-
-        changed = False
-        for node in self.selectedNodes:
-            if node.lib.storage is not None:
-                path_template = FormatString(node.lib.storage.pathTemplate)
-                if path_template:
-                    for tag in (tag for tag in node.allTags if tag.valueType == TagValue.TYPE_LOCATOR):
-                        locator = tag.value.locator
-                        if locator.isManagedFile and locator.sourceUrl:
-                            resolved_path = locator.resolveLocalFilePath(node)
-                            tag.value = Locator.fromManagedFile(resolved_path, locator.lib, locator.sourceUrl)
-                            changed = True
-
-        if changed:
-            self.__load()

@@ -6,7 +6,7 @@ from organica.utils.extend import globalObjectPool
 from organica.generic.extension import GENERIC_EXTENSION_UUID
 
 
-GENERIC_PROFILE_UUID = '7c73bb70-6720-11e2-bcfd-0800200c9a66'
+GenericProfileUuid = '7c73bb70-6720-11e2-bcfd-0800200c9a66'
 
 
 class TopicNameCombo(QComboBox):
@@ -45,13 +45,13 @@ class TopicNameCombo(QComboBox):
             topics_model = topics_view.model
 
             # save current item
-            current_tag = topics_view.selectedTag
+            current_tag = topics_view.currentTag
 
             class_filter = TagQuery(tag_class=class_name) if class_name != '*' else TagQuery()
             class_filter.hint = self.filterHint
             topics_model.filters = replaceInFilters(topics_model.filters, self.filterHint, class_filter)
 
-            topics_view.selectedTag = current_tag
+            topics_view.currentTag = current_tag
 
 
 class GenericProfileEnviron(object):
@@ -70,7 +70,7 @@ class GenericProfile(object):
     name = 'Generic profile'
     description = 'Can be used with any library, but provides only most common functions to ' \
                   'manage classes, tags and nodes'
-    uuid = GENERIC_PROFILE_UUID
+    uuid = GenericProfileUuid
 
     def createProfileEnviron(self, environ):
         return GenericProfileEnviron(environ)

@@ -134,6 +134,7 @@ class ChangeStorageDialog(Dialog):
 
         if (self.storage is None and self.actualStorage is None) or self.storage == self.actualStorage:
             Dialog.accept(self)
+            return
 
         root_path = self.ui.rootDirectory.path
         try:
@@ -146,8 +147,8 @@ class ChangeStorageDialog(Dialog):
             return
 
         with globalOperationContext().newOperation('initializing storage') as op:
-            op.progressChanged.connect(self.__updateOperationProgress)
-            op.progressTextChanged.connect(self.__updateOperationProgressText)
+            op.progressChanged.connect(self.ui.operationProgress.setValue)
+            op.progressTextChanged.connect(self.ui.lblProgressText.setText)
             op.finished.connect(self.__onOperationFinished)
 
             self.ui.widgetStack.setCurrentIndex(1)
@@ -162,14 +163,8 @@ class ChangeStorageDialog(Dialog):
                     self.storage.importFilesFrom(self.actualStorage, remove_source=True)
 
             if self.actualStorage is not None and self.ui.chkCopySettings.isChecked():
-            # copy settings from one storage to another
+                # copy settings from one storage to another
                 self.storage.copySettingsFrom(self.actualStorage)
-
-    def __updateOperationProgress(self, progress_value):
-        self.ui.operationProgress.setValue(int(progress_value))
-
-    def __updateOperationProgressText(self, progress_text):
-        self.ui.lblProgressText.setText(progress_text)
 
     def __onOperationFinished(self, finish_status):
         if finish_status != OperationState.COMPLETED:

@@ -1,6 +1,6 @@
 import logging
 import copy
-from PyQt4.QtCore import Qt, QModelIndex, QUrl
+from PyQt4.QtCore import Qt, QModelIndex
 from PyQt4.QtGui import QWidget, QTreeView, QVBoxLayout, QDesktopServices, QLabel, QListWidget, QListWidgetItem, \
                         QDialogButtonBox, QDialog, QMenu, QAction, QMessageBox, QBrush
 from organica.lib.objectsmodel import ObjectsModel
@@ -26,11 +26,11 @@ class ObjectsView(QWidget):
         self.view.setModel(self.model)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self.__showContextMenu)
-        self.view.doubleClicked.connect(self.launch)
+        self.view.activated.connect(self.launch)
 
         selection_model = WatchingSelectionModel(self.model)
         selection_model.selectionChanged.connect(self.__onSelectionChanged)
-        selection_model.resetted.connect(self.__onSelectionResetted)
+        selection_model.resetted.connect(self.__onSelectionChanged)
         self.view.setSelectionModel(selection_model)
 
         self.contextMenu = QMenu(self)
@@ -50,54 +50,48 @@ class ObjectsView(QWidget):
     def lib(self):
         return self.model.lib
 
-    def __onSelectionChanged(self, selected, deselected):
+    def __onSelectionChanged(self, selected=QModelIndex(), deselected=QModelIndex()):
         cm = globalCommandManager()
         rows_count = len(self.view.selectionModel().selectedRows())
         cm.activate('Objects.OneObjectActive', rows_count == 1)
         cm.activate('Objects.ObjectsActive', rows_count)
 
-    def __onSelectionResetted(self):
-        cm = globalCommandManager()
-        cm.deactivate('Objects.OneObjectActive')
-        cm.deactivate('Objects.ObjectsActive')
-
     def __showContextMenu(self, position):
-        if hasattr(self, 'contextMenu'):
-            index = self.view.indexAt(position)
-            if index.isValid():
-                node = index.data(ObjectsModel.NodeIdentityRole)
-                if node is not None:
-                    self.contextMenu.popup(self.view.mapToGlobal(position))
+        index = self.view.indexAt(position)
+        if index.isValid():
+            node = index.data(ObjectsModel.NodeIdentityRole)
+            if node is not None:
+                self.contextMenu.popup(self.view.mapToGlobal(position))
 
     def launch(self, item):
         """Launches given QModelIndex or Node in associated system application"""
 
         if isinstance(item, QModelIndex):
-            item = item.data(ObjectsModel.NodeIdentityRole)
-            item = item.lib.node(item)
+            node = item.data(ObjectsModel.NodeIdentityRole)
+            node = node.lib.node(node)
+        else:
+            node = item
 
-        if item is None:
+        if node is None:
             return
 
-        from organica.lib.filters import TagQuery
-        locators = [tag.value.locator for tag in item.tags(TagQuery(tag_class='locator'))]
+        resources = node.resources
 
-        if not locators:
-            logger.debug('no locators for node #{0}'.format(item.id))
+        if not resources:
+            logger.debug('no associated resources for node #{0}'.format(node.id))
             return
-        elif len(locators) > 1:
-            # let user to choose locator
-            dlg = LocatorChooseDialog(self, locators, item)
+        elif len(resources) > 1:
+            # let user to choose resource
+            dlg = LocatorChooseDialog(self, resources, node)
             if dlg.exec_() != LocatorChooseDialog.Accepted:
                 return
-            url = dlg.selectedLocator.launchUrl
+            url = dlg.selectedResource.getResolved(node).url
         else:
-            url = locators[0].launchUrl
+            url = resources[0].getResolved(node).url
 
         QDesktopServices.openUrl(url)
 
     def editSelected(self):
-        ###WARN: this code will not work for objects from different libraries!!!
         """Starts edit dialog for all selected nodes and flushes changes"""
         from organica.gui.nodedialog import NodeEditDialog
 
@@ -105,13 +99,9 @@ class ObjectsView(QWidget):
         if idents:
             lib = idents[0].lib
             dlg = NodeEditDialog(self, lib, [lib.node(ident) for ident in idents])
-            if dlg.exec_() != NodeEditDialog.Accepted:
-                return
+            dlg.exec_()
 
     def removeSelected(self):
-        from organica.lib.filters import TagQuery
-        from organica.lib.objects import TagValue
-
         nodes_to_remove = [index.data(ObjectsModel.NodeIdentityRole) for index in self.view.selectionModel().selectedRows()]
         if nodes_to_remove:
             if QMessageBox.question(self, tr('Delete objects'), tr('Do you want to delete selected objects?'),
@@ -122,6 +112,7 @@ class ObjectsView(QWidget):
 
     @property
     def currentNode(self):
+        """Returns Identity of current node"""
         return self.view.currentIndex().data(ObjectsModel.NodeIdentityRole)
 
     @currentNode.setter
@@ -134,22 +125,22 @@ class ObjectsView(QWidget):
 
 
 class LocatorChooseDialog(Dialog):
-    def __init__(self, parent, locators, node):
+    def __init__(self, parent, resources, node):
         Dialog.__init__(self, parent, name='locator_choose_dialog')
-        self.locators = locators
+        self.resources = resources
         self.node = copy.deepcopy(node)
 
-        self.setWindowTitle(tr('Select locator to use'))
+        self.setWindowTitle(tr('Select resource to use'))
 
         self.label = QLabel(self)
         self.label.setWordWrap(True)
-        self.label.setText(tr('This node has several locators linked. Choose one you want to use:'))
+        self.label.setText(tr('This node has several resources linked. Choose one you want to use:'))
 
         self.list = QListWidget(self)
-        for locator in self.locators:
-            launch_url = locator.launchUrl.toLocalFile() if locator.launchUrl.isLocalFile() else locator.launchUrl.toString()
-            item = QListWidgetItem(locator.icon, launch_url)
-            if locator.broken:
+        for resource in self.resources:
+            resolved = resource.getResolved(node)
+            item = QListWidgetItem(resource.icon, str(resolved))
+            if resolved.broken:
                 item.setForeground(QBrush(Qt.red))
             self.list.addItem(item)
         self.list.itemActivated.connect(self.accept)
@@ -164,9 +155,9 @@ class LocatorChooseDialog(Dialog):
         self.layout.addWidget(self.buttonBox)
 
     @property
-    def selectedLocator(self):
+    def selectedResource(self):
         sel_index = self.list.currentRow()
-        if 0 <= sel_index < len(self.locators):
-            return self.locators[sel_index]
+        if 0 <= sel_index < len(self.resources):
+            return self.resources[sel_index]
         else:
             return None

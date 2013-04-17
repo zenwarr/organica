@@ -1,4 +1,5 @@
 import os
+import sys
 
 
 if __name__ == '__main__':
@@ -16,4 +17,4 @@ if __name__ == '__main__':
     # some workaround
     constants.app_dir = os.path.dirname(os.path.realpath(__file__))
 
-    runApplication()
+    sys.exit(runApplication())

@@ -7,11 +7,12 @@ from organica.gui.actions import StandardStateValidator, globalCommandManager
 from organica.lib.tagsmodel import TagsModel
 from organica.lib.filters import TagQuery, Wildcard, replaceInFilters
 from organica.utils.extend import globalObjectPool
+from organica.utils.helpers import tr
 import organica.gui.resources.qrc_main
 
 
-TOPICS_VIEW_MODE_GROUP = 'topics_view_mode'
-MODE_ICON_SIZE = 32
+TopicsViewModeGroup = 'topics_view_mode'
+ModeIconSize = 32
 
 
 class _TopicsModel(QSortFilterProxyModel):
@@ -26,7 +27,7 @@ class _TopicsModel(QSortFilterProxyModel):
 
 
 class TopicsView(QWidget):
-    """Extensible with objects placed in group TOPICS_VIEW_MODE_GROUP.
+    """Extensible with objects placed in group TopicsViewModeGroup.
     Extension objects should obey following protocol:
         icon(size) method - icon that will be placed on button.
         name property - descriptive name of mode.
@@ -44,12 +45,12 @@ class TopicsView(QWidget):
     def __init__(self, parent, lib):
         QWidget.__init__(self, parent)
 
-        self.__lib = None
+        self.__lib = lib
 
         self.searchLine = QLineEdit(self)
         self.searchLine.textChanged.connect(self.__onSearchTextChanged)
         self.searchButton = QToolButton(self)
-        self.searchButton.setToolTip('Clear filter')
+        self.searchButton.setToolTip(tr('Clear filter'))
         self.searchButton.setIcon(QIcon(':/main/images/eraser.png'))
         self.searchButton.setAutoRaise(True)
         self.searchButton.clicked.connect(self.searchLine.clear)
@@ -62,8 +63,12 @@ class TopicsView(QWidget):
         self.tree.setModel(self._treeModel)
         self.tree.header().hide()
 
+        self.model = TagsModel(lib)
+        self._treeModel.setSourceModel(self.model)
+        self.tree.hideColumn(0)
+
         selectionModel = WatchingSelectionModel(self._treeModel)
-        selectionModel.resetted.connect(self.__onCurrentTagReset)
+        selectionModel.resetted.connect(self.__onCurrentTagChanged)
         selectionModel.currentChanged.connect(self.__onCurrentTagChanged)
         self.tree.setSelectionModel(selectionModel)
 
@@ -72,40 +77,32 @@ class TopicsView(QWidget):
         layout = QVBoxLayout()
         layout.setMargin(0)
         searchBoxLayout = QHBoxLayout()
+        searchBoxLayout.setContentsMargins(0, 0, 0, 0)
         searchBoxLayout.addWidget(self.searchLine)
         searchBoxLayout.addWidget(self.searchButton)
         layout.addLayout(searchBoxLayout)
         layout.addWidget(self.tree)
         self.modesLayout = QHBoxLayout()
+        self.modesLayout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(self.modesLayout)
         self.setLayout(layout)
 
         self.contextMenu = QMenu(self)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.__showContextMenu)
-        self.tree.doubleClicked.connect(self.__onItemDoubleClicked)
 
         with globalObjectPool().lock:
             self.modes = []
-            for mode_object in globalObjectPool().objects(TOPICS_VIEW_MODE_GROUP):
-                self.__addMode(mode_object)
+            for mode_object in globalObjectPool().objects(TopicsViewModeGroup):
+                if not hasattr(mode_object, 'profileUuid') or mode_object.profileUuid == self.lib.profileUuid:
+                    self.__addMode(mode_object)
 
             globalObjectPool().objectAdded.connect(self.__addMode)
             globalObjectPool().objectRemoved.connect(self.__removeMode)
 
-        self.lib = lib
-
     @property
     def lib(self):
         return self.__lib
-
-    @lib.setter
-    def lib(self, new_lib):
-        """Changing library will reset filter and hierarchy."""
-        self.model = TagsModel(new_lib)
-        self.model.hierarchy = ['*']
-        self._treeModel.setSourceModel(self.model)
-        self.tree.hideColumn(0)
 
     @property
     def activeMode(self):
@@ -125,7 +122,6 @@ class TopicsView(QWidget):
         for m_object, m_button in self.modes:
             if isinstance(new_mode, str):
                 if m_object.name == new_mode:
-                    new_mode = m_object
                     mode_button = m_button
                     break
             else:
@@ -148,16 +144,15 @@ class TopicsView(QWidget):
             return None
 
     @property
-    def selectedTag(self):
+    def currentTag(self):
         return self.tree.currentIndex().data(TagsModel.TagIdentityRole)
 
-    @selectedTag.setter
-    def selectedTag(self, new_tag):
-        from organica.lib.objects import get_identity
+    @currentTag.setter
+    def currentTag(self, new_tag):
         if new_tag is None:
             self.tree.setCurrentIndex(QModelIndex())
         else:
-            indexes = self._treeModel.sourceModel().indexesForTag(get_identity(new_tag))
+            indexes = self._treeModel.sourceModel().indexesForTag(new_tag)
             if indexes:
                 self.tree.setCurrentIndex(self._treeModel.mapFromSource(indexes[0]))
             else:
@@ -173,7 +168,7 @@ class TopicsView(QWidget):
     def __addMode(self, mode_object):
         mode_button = QToolButton()
         mode_button.setCheckable(True)
-        mode_button.setIcon(mode_object.icon(MODE_ICON_SIZE))
+        mode_button.setIcon(mode_object.icon(ModeIconSize))
         mode_button.setToolTip(mode_object.tooltip if hasattr(mode_object, 'tooltip') else mode_object.name)
         mode_button.clicked.connect(self.__onModeButtonClicked)
         self.modes.append((mode_object, mode_button))
@@ -201,12 +196,6 @@ class TopicsView(QWidget):
             if index.isValid():
                 self.contextMenu.popup(self.tree.mapToGlobal(pos))
 
-    def __onItemDoubleClicked(self, index):
-        pass
-
-    def __onCurrentTagChanged(self, new_index):
+    def __onCurrentTagChanged(self, new_index=QModelIndex()):
         tag = new_index.data(TagsModel.TagIdentityRole)
         self.selectedTagChanged.emit(tag)
-
-    def __onCurrentTagReset(self):
-        self.selectedTagChanged.emit(None)

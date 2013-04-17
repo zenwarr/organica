@@ -1,4 +1,3 @@
-import os
 from PyQt4.QtCore import Qt, QAbstractItemModel, QModelIndex
 from organica.utils.helpers import removeLastSlash, tr
 from organica.utils.lockable import Lockable
@@ -14,38 +13,23 @@ class NodeNameColumn(object):
     title = tr('Name')
 
 
-class NodeLocatorColumn(object):
-    def data(self, index, node, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
-            from organica.lib.filters import TagQuery
-
-            locators = [tag.value.locator for tag in node.tags(TagQuery(tag_class='locator'))]
-            if not locators:
-                return None
-            else:
-                choosen_locator = locators[0]
-
-            if choosen_locator.isLocalFile:
-                filename = removeLastSlash(choosen_locator.localFilePath)
-                return os.path.basename(filename)
-            else:
-                return str(choosen_locator)
-        return None
-
-    title = tr('Locator')
-
-
-def FormattedColumn(object):
+class FormattedColumn(object):
     def __init__(self, template, title=tr('Custom')):
-        self.__template = template
+        from organica.lib.formatstring import FormatString
+
+        self.__template = FormatString(template)
         self.title = title
 
     def data(self, index, node, role=Qt.DisplayRole):
-        from organica.lib.formatstring import FormatString
-
         if role == Qt.DisplayRole:
-            return FormatString(self.__template).format(node)
+            return self.__template.format(node)
         return None
+
+
+class NodeLocatorColumn(FormattedColumn):
+    def __init__(self):
+        FormattedColumn.__init__(self, '{locator: max=1, end="", locator=name}', tr('Locator'))
+
 
 
 class ObjectsModel(QAbstractItemModel, Lockable):
@@ -61,7 +45,7 @@ class ObjectsModel(QAbstractItemModel, Lockable):
         self.__filters = []
 
         with self.__set.lock:
-            self.__cached_nodes = self.__set.allNodes
+            self.__fetch()
 
             self.__set.elementAppeared.connect(self.__onElementAppeared)
             self.__set.elementDisappeared.connect(self.__onElementDisappeared)
@@ -96,14 +80,13 @@ class ObjectsModel(QAbstractItemModel, Lockable):
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
     def data(self, index, role=Qt.DisplayRole):
-        if index.isValid() and 0 <= index.row() < len(self.__cached_nodes) and 0 <= index.column() < len(self.__columns):
-            node = self.lib.node(self.__cached_nodes[index.row()])
+        if index.isValid() and self.hasIndex(index.row(), index.column()):
+            node = self.__cached_nodes[index.row()]
             if node is not None:
                 if role == self.NodeIdentityRole:
                     return node.identity
                 else:
-                    column_object = self.__columns[index.column()]
-                    return column_object.data(index, node, role)
+                    return self.__columns[index.column()].data(index, node, role)
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -112,9 +95,8 @@ class ObjectsModel(QAbstractItemModel, Lockable):
                 if role == Qt.DisplayRole:
                     if 0 <= section < len(self.__columns):
                         return self.__columns[section].title
-            else:
-                if 0 <= section < len(self.__cached_nodes):
-                    return str(section)
+            elif 0 <= section < len(self.__cached_nodes):
+                return str(section)
         return None
 
     def rowCount(self, index=QModelIndex()):
@@ -127,7 +109,7 @@ class ObjectsModel(QAbstractItemModel, Lockable):
 
     def index(self, row, column, parent=QModelIndex()):
         with self.lock:
-            if 0 <= row < len(self.__cached_nodes) and 0 <= column < len(self.__columns) and not parent.isValid():
+            if not parent.isValid() and self.hasIndex(row, column):
                 return self.createIndex(row, column)
         return QModelIndex()
 
@@ -152,13 +134,13 @@ class ObjectsModel(QAbstractItemModel, Lockable):
             node_to_cache = self.lib.node(new_element)
             if node_to_cache is not None:
                 self.beginInsertRows(QModelIndex(), len(self.__cached_nodes), len(self.__cached_nodes))
-                self.__cached_nodes.append(node_to_cache.identity)
+                self.__cached_nodes.append(node_to_cache)
                 self.endInsertRows()
 
     def __onElementDisappeared(self, removed_element):
         with self.lock:
             for node_index in range(len(self.__cached_nodes)):
-                if self.__cached_nodes[node_index] == removed_element:
+                if self.__cached_nodes[node_index].identity == removed_element:
                     self.beginRemoveRows(QModelIndex(), node_index, node_index)
                     del self.__cached_nodes[node_index]
                     self.endRemoveRows()
@@ -167,9 +149,8 @@ class ObjectsModel(QAbstractItemModel, Lockable):
     def __onElementUpdated(self, updated_element):
         with self.lock:
             for node_index in range(len(self.__cached_nodes)):
-                if self.__cached_nodes[node_index] == updated_element:
-                    self.dataChanged.emit(self.index(node_index, 0), self.index(node_index,
-                                                                                self.columnCount() - 1))
+                if self.__cached_nodes[node_index].identity == updated_element:
+                    self.dataChanged.emit(self.index(node_index, 0), self.index(node_index, self.columnCount() - 1))
                     break
 
     def __onResetted(self):
@@ -181,7 +162,7 @@ class ObjectsModel(QAbstractItemModel, Lockable):
 
     def __fetch(self):
         with self.lock:
-            self.__cached_nodes = self.__set.allNodes
+            self.__cached_nodes = [ident.lib.node(ident) for ident in self.__set.allNodes]
 
     def indexOfNode(self, node):
         row = self.__cached_nodes.index(get_identity(node))

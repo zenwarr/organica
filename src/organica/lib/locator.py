@@ -1,93 +1,74 @@
 import os
+import copy
 from PyQt4.QtCore import QUrl, QDir, QFileInfo
 from PyQt4.QtGui import QFileIconProvider, QIcon
 from organica.utils.helpers import cicompare
+from organica.lib.objects import ObjectError
+
+
+class LocatorResolveError(ObjectError):
+    pass
 
 
 class Locator(object):
-    MANAGED_FILES_SCHEME = 'storage'
+    ManagedFilesScheme = 'storage'
 
-    def __init__(self, url='', source_url=None):
-        self.__lib = None
-        self.__sourceUrl = source_url
-        if isinstance(url, str) and url and (QUrl(url).scheme() in ('file', '')):
-            self.__url = QUrl.fromLocalFile(url)
+    def __init__(self, url='', source=''):
+        """Equivalent to Locator.fromUrl. Objects of this class are immutable"""
+        if isinstance(url, Locator):
+            other_locator = url
+            self.__url = other_locator.__url
+            self.__source = other_locator.__source
         else:
-            self.__url = QUrl(url)
+            if not url:
+                self.__url = QUrl()
+            elif isinstance(url, str) and url and not QUrl(url).scheme():
+                self.__url = QUrl.fromLocalFile(url)
+            else:
+                self.__url = QUrl(url)
+            self.__source = Locator(source) if source else None
+
+    def getResolved(self, node):
+        """Resolves URL this locator points to. Same locator can be resolved to different URLs depending on which node
+        it is linked with. Return value is Locator object that cannot have ManagedFilesScheme."""
+        if self.__url.scheme() != self.ManagedFilesScheme:
+            return copy.deepcopy(self)
+        else:
+            if node is None or node.lib is None:
+                raise LocatorResolveError()
+            storage = node.lib.storage  # store reference to storage here to not lock library
+            if storage is None:
+                raise LocatorResolveError()
+            else:
+                return Locator(os.path.join(storage.rootDirectory, self.__url.path()))
 
     @property
-    def lib(self):
-        return self.__lib if self.isManagedFile else None
-
-    @property
-    def url(self):
+    def url(self) -> QUrl:
+        """Return QUrl object representing resource URL."""
         return QUrl(self.__url)
 
     @property
-    def launchUrl(self):
-        """Same as url, but translates storage scheme to file"""
-        if self.isLocalFile:
-            return QUrl.fromLocalFile(self.localFilePath)
-        else:
-            return self.url
+    def source(self):
+        return Locator(self.__source or '')
 
     @property
-    def isLocalFile(self):
-        return self.isManagedFile or self.__url.isLocalFile()
+    def isLocalFile(self) -> bool:
+        """True if url has file: scheme"""
+        return self.__url.isLocalFile()
 
     @property
-    def isManagedFile(self):
-        return cicompare(self.__url.scheme(), self.MANAGED_FILES_SCHEME)
+    def isManagedFile(self) -> bool:
+        """True if url has scheme: scheme"""
+        return self.__url.scheme() == self.ManagedFilesScheme
 
     @property
-    def localFilePath(self):
-        if self.isManagedFile:
-            if self.__lib is not None and self.__lib.storage is not None and self.__lib.storage.rootDirectory:
-                return os.path.join(self.__lib.storage.rootDirectory, self.__url.path())
-        elif self.isLocalFile:
-            return self.__url.toLocalFile()
-        return ''
+    def localFilePath(self) -> str:
+        """Return local file path. Does not resolves locator, of course."""
+        return self.__url.toLocalFile() if self.isLocalFile else ''
 
     @property
-    def databaseForm(self):
+    def databaseForm(self) -> str:
         return str(self)
-
-    def __str__(self):
-        if self.__url.isLocalFile():
-            return self.__url.toLocalFile()
-        return self.__url.toString()
-
-    @staticmethod
-    def fromUrl(url, lib=None, source_url=None):
-        if cicompare(QUrl(url).scheme(), Locator.MANAGED_FILES_SCHEME):
-            return Locator.fromManagedFile(QUrl(url).path(), lib, source_url)
-        else:
-            return Locator(url, source_url)
-
-    @staticmethod
-    def fromLocalFile(path, source_url=None):
-        return Locator(QUrl.fromLocalFile(path), source_url)
-
-    @staticmethod
-    def fromManagedFile(path, lib, source_url=None):
-        if not os.path.isabs(path):
-            # assume that directory already relative to storage root
-            rel_path = path
-        elif lib is not None and lib.storage is not None and lib.storage.rootDirectory:
-            rel_path = QDir(lib.storage.rootDirectory).relativeFilePath(path)
-        else:
-            return None
-
-        managed_file_url = QUrl()
-        managed_file_url.setScheme('storage')
-        managed_file_url.setPath(rel_path)
-        loc = Locator(managed_file_url, source_url)
-        loc.__lib = lib
-        return loc
-
-    @staticmethod
-    def fromDatabaseForm(db_form, lib):
-        return Locator.fromUrl(db_form, lib)
 
     @property
     def icon(self):
@@ -96,41 +77,64 @@ class Locator(object):
             if not target_file_info.exists():
                 # check if we can use source file... we will use source if it does not exist - some systems can determine
                 # file type by extension
-                if self.sourceUrl and self.sourceUrl.isLocalFile():
-                    target_file_info = QFileInfo(self.sourceUrl.toLocalFile())
+                if self.source and self.source.isLocalFile:
+                    target_file_info = QFileInfo(self.source.localFilePath)
             return QFileIconProvider().icon(target_file_info)
         else:
             return QIcon()
 
+    @property
+    def broken(self) -> bool:
+        """URL with storage: scheme is not considered to be broken"""
+        return self.isLocalFile and not os.path.exists(self.localFilePath)
+
+    def __str__(self):
+        return self.localFilePath if self.isLocalFile else self.__url.toString()
+
     def __deepcopy__(self, memo):
-        # it is impossible to deepcopy PyQt objects
-        cp = Locator(self.__url, self.__sourceUrl)
-        cp.__lib = self.__lib  # do not deepcopy library
-        return cp
+        return Locator(self.__url, self.__source)
 
     def __eq__(self, other):
         if not isinstance(other, Locator):
             return NotImplemented
+        return self.__url == other.__url  # source does not sense
 
-        return self.__url == other.__url
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
-    @property
-    def sourceUrl(self):
-        return self.__sourceUrl
+    def __bool__(self):
+        return bool(str(self))
 
-    def resolveLocalFilePath(self, node):
-        if not self.isManagedFile or node.lib.storage is None:
-            return self.localFilePath
+    @staticmethod
+    def fromUrl(url):
+        return Locator(url)
+
+    @staticmethod
+    def fromLocalFile(path, source=None):
+        return Locator(path, source)
+
+    @staticmethod
+    def fromManagedFile(path, lib, source=None):
+        if not os.path.isabs(path):
+            # assume that path already relative to storage root
+            rel_path = path
+        elif lib is not None:
+            storage = lib.storage
+            with storage.lock:
+                if not storage.rootDirectory:
+                    raise LocatorResolveError('no storage')
+                rel_path = QDir(storage.rootDirectory).relativeFilePath(path)
         else:
-            return node.lib.storage.getStoragePath(self.sourceUrl.toString(), node)
+            raise LocatorResolveError('no library')
 
-    @property
-    def broken(self):
-        """Check if locator is invalid. Locator considered to be broken if resource it points to does not exist or
-        cannot be located.
-        """
-        if self.isLocalFile:
-            if self.isManagedFile and (self.lib is None or self.lib.storage is None):
-                return True
-            return not os.path.exists(self.localFilePath)
-        return True
+        rel_path = os.path.normcase(os.path.normpath(rel_path))
+
+        managed_file_url = QUrl()
+        managed_file_url.setScheme(Locator.ManagedFilesScheme)
+        managed_file_url.setPath(rel_path)
+        return Locator(managed_file_url, source)
+
+    @staticmethod
+    def fromDatabaseForm(db_form):
+        return Locator(db_form)
+

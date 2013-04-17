@@ -10,14 +10,14 @@ class AboutDialog(QDialog):
         QDialog.__init__(self, parent)
 
         self.resize(500, 500)
-        self.setWindowTitle(tr('About program'))
+        self.setWindowTitle(tr('About Organica'))
 
         layout = QVBoxLayout(self)
 
         self.label = QLabel(self)
         self.label.setTextFormat(Qt.RichText)
-        self.label.setText(tr('Organica version {0}, (c) 2013 zenwarr<br>' \
-                            '<a href="http://github.org/zenwarr/organica">http://github.org/zenwarr/organica</a>') \
+        self.label.setText(tr('Organica version {0}, (c) 2013 zenwarr<br>'
+                            '<a href="https://github.com/zenwarr/organica">https://github.com/zenwarr/organica</a>')
                             .format(QCoreApplication.applicationVersion()))
 
         self.tabWidget = QTabWidget(self)
