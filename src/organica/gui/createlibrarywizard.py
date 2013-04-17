@@ -131,6 +131,7 @@ class DatabasePage(QWizardPage):
         self.pathEdit.pathChanged.connect(self.completeChanged)
         self.pathEdit.fileDialog.setFileMode(QFileDialog.AnyFile)
         self.pathEdit.fileDialog.setNameFilters(['Organica library files (*.orl)'])
+        self.pathEdit.fileDialog.setDefaultSuffix('orl')
 
         self.registerField('database_filename', self, 'databaseFilename')
 
