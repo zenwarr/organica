@@ -100,7 +100,8 @@ class Locator(object):
         return self.__url == other.__url  # source does not sense
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        r = self.__eq__(other)
+        return not r if r != NotImplemented else r
 
     def __bool__(self):
         return bool(str(self))

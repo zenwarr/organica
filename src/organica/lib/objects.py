@@ -336,6 +336,11 @@ class LibraryObject(object):
         else:
             raise ValueError('object cannot be flushed: not associated with any library')
 
+    def remove(self):
+        if self.isFlushed:
+            self.lib.remove(self)
+            self.identity = Identity(self.lib)
+
 
 class TagClass(LibraryObject):
     """Tag class is used to describe properties of tags. Classes are immutable.
@@ -367,14 +372,6 @@ class TagClass(LibraryObject):
     def hidden(self):
         return self.__hidden
 
-    def remove(self):
-        """If object is flushed, remove it from library
-        """
-
-        if self.isFlushed:
-            self.lib.remove(self)
-            self.identity = Identity(self.lib)
-
     def __eq__(self, other):
         """Two classes are equal if have same names, value type and hidden flag,
         but never equal if identities are flushed and different. Name comparision
@@ -392,7 +389,8 @@ class TagClass(LibraryObject):
                self.hidden == other.hidden
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        r = self.__eq__(other)
+        return not r if r != NotImplemented else r
 
     def __hash__(self):
         return self.id
@@ -478,7 +476,8 @@ class Tag(LibraryObject):
         return self.tagClass == other.tagClass and self.value == other.value
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        r = self.__eq__(other)
+        return not r if r != NotImplemented else r
 
     def actual(self):
         return self.lib.tag(self) if self.isFlushed else None
@@ -634,7 +633,8 @@ class Node(LibraryObject):
                len(Node.commonTags((self, other))) == len(self.__allTags)
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        r = self.__eq__(other)
+        return not r if r != NotImplemented else r
 
     def ensureTagsFetched(self):
         """When node is initialized from database, code will not automatically query for linked tags

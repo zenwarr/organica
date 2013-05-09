@@ -89,8 +89,8 @@ class Library(QObject, Lockable):
     linkCreated = pyqtSignal(Node, Tag)
     linkRemoved = pyqtSignal(Node, Tag)
 
-    classCreated = pyqtSignal(TagClass)
-    classRemoved = pyqtSignal(TagClass)
+    tagClassCreated = pyqtSignal(TagClass)
+    tagClassRemoved = pyqtSignal(TagClass)
 
     def __init__(self):
         QObject.__init__(self)
@@ -357,7 +357,7 @@ class Library(QObject, Lockable):
 
             # update cached
             self._tagClasses[tc.name.lower()] = copy.deepcopy(tc)
-            self.classCreated.emit(copy.deepcopy(tc))
+            self.tagClassCreated.emit(copy.deepcopy(tc))
             return tc
 
     def removeTagClass(self, tag_class, remove_tags=False):
@@ -389,7 +389,7 @@ class Library(QObject, Lockable):
             # update cache
             del self._tagClasses[r_class.name.lower()]
 
-            self.classRemoved.emit(copy.deepcopy(tag_class))
+            self.tagClassRemoved.emit(copy.deepcopy(tag_class))
 
     def tags(self, query):
         """Query database for tags. :query: should be TagQuery object."""

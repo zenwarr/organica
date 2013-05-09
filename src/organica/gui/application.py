@@ -93,6 +93,9 @@ class Application(QApplication):
 
         print('constants.data_dir = {0}'.format(constants.data_dir))
 
+        # create data directory if exists
+        os.makedirs(constants.data_dir, exist_ok=True)
+
         settings.defaultSettingsDirectory = constants.data_dir
         settings.defaultSettingsFilename = 'organica.conf'
         settings.defaultQuickSettingsFilename = 'organica.qconf'
