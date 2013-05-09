@@ -22,8 +22,8 @@ class TagClassesModel(QStandardItemModel):
     def lib(self, new_lib):
         if self.__lib is not new_lib:
             if self.__lib is not None:
-                self.__lib.classCreated.disconnect(self.__onClassCreated)
-                self.__lib.classRemoved.disconnect(self.__onClassRemoved)
+                self.__lib.tagClassCreated.disconnect(self.__onClassCreated)
+                self.__lib.tagClassRemoved.disconnect(self.__onClassRemoved)
 
             self.__lib = new_lib
 
@@ -32,8 +32,8 @@ class TagClassesModel(QStandardItemModel):
             if self.__lib is not None:
                 with self.__lib.lock:
                     self.__fetch()
-                    self.__lib.classCreated.connect(self.__onClassCreated)
-                    self.__lib.classRemoved.connect(self.__onClassRemoved)
+                    self.__lib.tagClassCreated.connect(self.__onClassCreated)
+                    self.__lib.tagClassRemoved.connect(self.__onClassRemoved)
 
     def __fetch(self):
         self.clear()

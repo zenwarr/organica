@@ -94,7 +94,8 @@ class LocalStorage(object):
         return isSameFile(self.rootDirectory, other.rootDirectory)
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        r = self.__eq__(other)
+        return not r if r != NotImplemented else r
 
     @staticmethod
     def isDirectoryStorage(path):

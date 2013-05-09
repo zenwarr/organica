@@ -46,7 +46,8 @@ class Wildcard(object):
             return NotImplemented
 
     def __ne__(self, text):
-        return not self.__eq__(text)
+        r = self.__eq__(text)
+        return not r if r != NotImplemented else r
 
     def __str__(self):
         return self.pattern

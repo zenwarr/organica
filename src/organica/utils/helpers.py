@@ -1,6 +1,6 @@
 import json
 import os
-
+import re
 from PyQt4.QtCore import QCoreApplication
 
 
@@ -74,7 +74,11 @@ def formatSize(size):
             break
     else:
         postfix = 'b'
-    return '{0} {1}'.format(round(size, 2), postfix)
+
+    num = str(round(size, 2))
+    if num.endswith('.0'):
+        num = num[:-2]
+    return num + ' ' + postfix
 
 
 def lastFileDialogPath():
@@ -99,3 +103,16 @@ def first(iterable, default=None):
         return next(iter(iterable))
     except StopIteration:
         return default
+
+
+_blacklisted = re.compile(r'[\\/|\?\*<>":\+]')
+_whitespaces = re.compile(r'\s+')
+
+
+def sanitizeFilename(filename, replacement='_', replace_whitespaces=True):
+    """Does not keep path separators, replaces all blacklisted characters with replacement.
+    Whitespace characters are replaced with spaces if replace_whitespaces is specified"""
+    filename = _blacklisted.sub(replacement, filename)
+    if replace_whitespaces:
+        filename = _whitespaces.sub(' ', filename)
+    return filename
